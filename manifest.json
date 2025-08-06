@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "TeX for Gmail",
+  "version": "1.0.0",
+  "description": "Render LaTeX equations in Gmail",
+  "permissions": ["activeTab"],
+  "host_permissions": ["*://mail.google.com/*"],
+  "content_scripts": [
+    {
+      "matches": ["*://mail.google.com/*"],
+      "js": ["content.js"],
+      "css": ["styles.css"]
+    }
+  ]
+}

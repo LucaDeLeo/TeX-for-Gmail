@@ -1,0 +1,114 @@
+/* TeX for Gmail - Styles for rendered math elements */
+
+/* Inline math styling */
+.tex-math-inline {
+  background-color: #d4f8d4;
+  padding: 2px 4px;
+  border-radius: 3px;
+  display: inline-block;
+  margin: 0 2px;
+  vertical-align: middle;
+  line-height: 1;
+  /* Performance optimization */
+  will-change: background-color;
+  /* Accessibility */
+  position: relative;
+}
+
+/* Display math styling */
+.tex-math-display {
+  background-color: #d4f8d4;
+  padding: 4px 8px;
+  border-radius: 3px;
+  display: inline-block;
+  margin: 4px 0;
+  vertical-align: middle;
+  line-height: 1;
+  /* Performance optimization */
+  will-change: background-color;
+  /* Accessibility */
+  position: relative;
+}
+
+/* Error state styling */
+.tex-render-error {
+  background-color: #ffe0e0;
+  color: #d00;
+  font-family: monospace;
+  font-size: 0.9em;
+}
+
+/* Ensure images within math elements align properly */
+.tex-math-inline img,
+.tex-math-display img {
+  vertical-align: middle;
+  max-width: 100%;
+  height: auto;
+}
+
+/* Display math can be centered if in its own paragraph */
+p > .tex-math-display:only-child {
+  display: block;
+  text-align: center;
+  margin: 8px auto;
+}
+
+/* Toast notification styles */
+.tex-toast {
+  font-family: 'Google Sans', Roboto, Arial, sans-serif;
+  font-size: 14px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+}
+
+.tex-toast-error {
+  background-color: #f44336 !important;
+}
+
+.tex-toast-info {
+  background-color: #2196F3 !important;
+}
+
+/* Button processing state */
+.tex-button[data-processing="true"] {
+  opacity: 0.7;
+  cursor: wait !important;
+}
+
+/* Smooth transitions for math elements */
+.tex-math-inline,
+.tex-math-display {
+  transition: background-color 0.2s ease;
+}
+
+/* Hover effect for rendered math (subtle) */
+.tex-math-inline:hover,
+.tex-math-display:hover {
+  background-color: #c8f0c8;
+}
+
+/* Loading state for math elements */
+.tex-math-loading {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .tex-math-inline,
+  .tex-math-display {
+    border: 1px solid #4caf50;
+  }
+  
+  .tex-render-error {
+    border: 1px solid #f44336;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .tex-math-inline,
+  .tex-math-display {
+    transition: none;
+  }
+}
