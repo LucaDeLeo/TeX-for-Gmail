@@ -37,6 +37,7 @@
     processingStates: new WeakMap(),
     composeObservers: new WeakMap(), // Track observers per compose area
     renderTimeouts: new WeakMap(), // Track render timeouts per compose area
+    toggleStates: new WeakMap(), // Track toggle state per compose area
     apiCallTimes: [], // Track API call timestamps for rate limiting
     debugMode: false, // Set to true for verbose logging
     init() {
@@ -70,6 +71,145 @@
     }
   };
 
+  // Task 1 (Story 1.3): Toggle State Management Functions
+  function getToggleState(composeArea) {
+    // Get toggle state for a compose area, default to true (active/rendering enabled)
+    if (!TeXForGmail.toggleStates.has(composeArea)) {
+      TeXForGmail.toggleStates.set(composeArea, true);
+    }
+    return TeXForGmail.toggleStates.get(composeArea);
+  }
+
+  function setToggleState(composeArea, state) {
+    TeXForGmail.toggleStates.set(composeArea, state);
+    TeXForGmail.log(`Toggle state set to ${state ? 'active' : 'inactive'} for compose area`);
+  }
+
+  function cleanupToggleState(composeArea) {
+    if (TeXForGmail.toggleStates.has(composeArea)) {
+      TeXForGmail.toggleStates.delete(composeArea);
+      TeXForGmail.log('Toggle state cleaned up for compose area');
+    }
+  }
+
+  // Task 2 (Story 1.3): Button Visual State Management
+  function updateButtonVisualState(button, isActive) {
+    if (isActive) {
+      button.setAttribute('data-toggle-state', 'active');
+      button.setAttribute('data-tooltip', 'LaTeX rendering is ON - Click to toggle');
+    } else {
+      button.setAttribute('data-toggle-state', 'inactive');
+      button.setAttribute('data-tooltip', 'LaTeX rendering is OFF - Click to toggle');
+    }
+  }
+
+  function getButtonForComposeArea(composeArea) {
+    // Find the button associated with a compose area
+    const parent = composeArea.closest('.M9, .AD');
+    if (parent) {
+      const toolbar = parent.querySelector('.aZ .J-J5-Ji, .aZ .J-Z-I, .gU .J-Z-I, [gh="tl"] .J-J5-Ji');
+      if (toolbar) {
+        return TeXForGmail.composeButtons.get(toolbar);
+      }
+    }
+    return null;
+  }
+
+  // Task 3 (Story 1.3): Toggle Logic - Source to Render and Back
+  function restoreLatexSource(composeArea) {
+    // Restore all rendered math to LaTeX source
+    const renderedElements = composeArea.querySelectorAll('.tex-math-inline, .tex-math-display');
+    let restoredCount = 0;
+    
+    renderedElements.forEach(element => {
+      const latex = element.getAttribute('data-latex');
+      if (latex) {
+        const isDisplay = element.classList.contains('tex-math-display');
+        const textNode = document.createTextNode(isDisplay ? `$$${latex}$$` : `$${latex}$`);
+        element.parentNode.replaceChild(textNode, element);
+        restoredCount++;
+      }
+    });
+    
+    TeXForGmail.log(`Restored ${restoredCount} LaTeX expressions to source`);
+    return restoredCount > 0;
+  }
+  
+  // Ensure emails are sent with rendered math (AC#10)
+  function ensureRenderedBeforeSend(composeArea) {
+    const currentToggleState = getToggleState(composeArea);
+    
+    if (!currentToggleState) {
+      // Temporarily render all LaTeX before sending
+      TeXForGmail.log('Temporarily rendering LaTeX for email send');
+      
+      // Save current state and force render
+      const originalState = getToggleState(composeArea);
+      setToggleState(composeArea, true);
+      
+      // Render all LaTeX synchronously
+      detectAndRenderLatex(composeArea);
+      
+      // Restore original state after a brief delay (allow send to complete)
+      setTimeout(() => {
+        if (!originalState) {
+          setToggleState(composeArea, false);
+          restoreLatexSource(composeArea);
+        }
+      }, 1000);
+    }
+  }
+
+  function rerenderAllLatex(composeArea) {
+    // Re-render all LaTeX when toggling on
+    preserveCursorPosition(composeArea, () => {
+      const hasChanges = detectAndRenderLatex(composeArea);
+      TeXForGmail.log(`Re-rendered LaTeX, changes: ${hasChanges}`);
+      return hasChanges;
+    });
+  }
+
+  function toggleRendering(composeArea) {
+    const currentState = getToggleState(composeArea);
+    const newState = !currentState;
+    
+    // Update toggle state
+    setToggleState(composeArea, newState);
+    
+    // Update button visual state
+    const button = getButtonForComposeArea(composeArea);
+    if (button) {
+      updateButtonVisualState(button, newState);
+    }
+    
+    // Preserve cursor position during toggle
+    preserveCursorPosition(composeArea, () => {
+      if (newState) {
+        // Toggle ON: Render all LaTeX and start observer
+        rerenderAllLatex(composeArea);
+        setupAutoRenderObserver(composeArea); // Start observing
+        showToast('LaTeX rendering enabled');
+      } else {
+        // Toggle OFF: Restore source LaTeX and stop observer
+        const observer = TeXForGmail.composeObservers.get(composeArea);
+        if (observer) {
+          observer.disconnect();
+          TeXForGmail.composeObservers.delete(composeArea);
+          TeXForGmail.log('Observer disconnected - toggle is OFF');
+        }
+        
+        const restored = restoreLatexSource(composeArea);
+        if (restored) {
+          showToast('LaTeX source restored');
+        } else {
+          showToast('No rendered LaTeX to restore');
+        }
+      }
+    });
+    
+    return newState;
+  }
+
   // Task 1: LaTeX Pattern Detection - Compile once for performance
   const LATEX_PATTERNS = {
     // Display math: $$...$$ (must be on same line, no nested $$)
@@ -82,20 +222,32 @@
 
   // LaTeX validation to prevent injection attacks
   function isValidLatex(latex) {
+    // Check length first (prevent regex DoS)
+    if (latex.length >= CONFIG.maxLatexLength) {
+      return false;
+    }
     // Basic validation - no script tags or suspicious patterns
     const dangerous = /<script|javascript:|on\w+=/i;
-    return !dangerous.test(latex) && latex.length < CONFIG.maxLatexLength;
+    return !dangerous.test(latex);
   }
 
+  // Currency patterns compiled once for performance
+  const CURRENCY_PATTERNS = [
+    /\$\d+(?:[,.\d]*)?(?:\s+(?:and|to|-|\+|or)\s+\$\d+(?:[,.\d]*)?)?/,
+    /\$\d+(?:[,.\d]*)?\/(?:hr|hour|day|week|month|year)/i,
+    /(?:USD|EUR|GBP)\s*\$?\d+/i,
+    /\$\d+\.\d{2}(?:\s|$)/, // Prices like $9.99
+    /\$\d{1,3}(?:,\d{3})+/ // Formatted amounts like $1,000
+  ];
+  
   // Currency detection helper - Enhanced with more patterns
   function isCurrency(text) {
-    // Check for common currency patterns like "$5", "$10.99", "$1,000", "$5-$10"
-    const currencyPatterns = [
-      /\$\d+(?:[,.\d]*)?(?:\s+(?:and|to|-|\+|or)\s+\$\d+(?:[,.\d]*)?)?/g,
-      /\$\d+(?:[,.\d]*)?\/(?:hr|hour|day|week|month|year)/gi,
-      /(?:USD|EUR|GBP)\s*\$?\d+/gi
-    ];
-    return currencyPatterns.some(pattern => pattern.test(text));
+    // Quick check for dollar sign followed by digit
+    if (!/\$\d/.test(text)) {
+      return false;
+    }
+    // Check against currency patterns
+    return CURRENCY_PATTERNS.some(pattern => pattern.test(text));
   }
 
   // Task 2: CodeCogs API Integration with validation and rate limiting
@@ -106,7 +258,7 @@
       return null;
     }
     
-    // Check rate limit
+    // Check rate limit AFTER validation (don't count invalid requests)
     if (!TeXForGmail.checkRateLimit()) {
       TeXForGmail.log('Rate limit exceeded, skipping render');
       return null;
@@ -155,6 +307,7 @@
     wrapper.className = isDisplay ? 'tex-math-display' : 'tex-math-inline';
     wrapper.setAttribute('data-latex', latex);
     wrapper.setAttribute('data-processed', 'true');
+    wrapper.setAttribute('data-tex-toggled', 'rendered'); // Task 4 (Story 1.3): Track element state
     
     const img = document.createElement('img');
     img.src = imgUrl;
@@ -204,6 +357,13 @@
   // Task 3, 5: Main rendering function - Optimized
   function detectAndRenderLatex(composeArea) {
     if (!composeArea) return false;
+    
+    // Task 4 (Story 1.3): Check toggle state before rendering
+    const isRenderingEnabled = getToggleState(composeArea);
+    if (!isRenderingEnabled) {
+      TeXForGmail.log('Rendering disabled by toggle, skipping');
+      return false;
+    }
 
     const textNodes = findTextNodes(composeArea);
     let hasChanges = false;
@@ -375,15 +535,16 @@
     button.className = 'tex-button T-I J-J5-Ji aoO v7 T-I-atl L3';
     button.setAttribute('role', 'button');
     button.setAttribute('tabindex', '0');
-    button.setAttribute('aria-label', 'Insert LaTeX equation');
-    button.setAttribute('data-tooltip', 'Render LaTeX equations');
+    button.setAttribute('aria-label', 'Toggle LaTeX rendering');
+    button.setAttribute('data-tooltip', 'LaTeX rendering is ON - Click to toggle');
+    button.setAttribute('data-toggle-state', 'active'); // Initial active state
     button.style.cssText = 'user-select: none; margin: 0 8px; cursor: pointer;';
     button.innerHTML = '<div class="asa"><div class="a3I">📐 TeX</div></div>';
     
     return button;
   }
 
-  // Task 6: Handle button click - Fixed memory leak
+  // Task 6: Handle button click - Implements toggle functionality (Story 1.3)
   function handleTexButtonClick(button) {
     // Prevent concurrent clicks
     if (TeXForGmail.processingStates.get(button)) {
@@ -393,49 +554,31 @@
 
     TeXForGmail.processingStates.set(button, true);
     
-    // Update button state
+    // Update button state temporarily during processing
     const buttonText = button.querySelector('.a3I');
     const originalText = buttonText.textContent;
-    buttonText.textContent = 'Rendering...';
+    buttonText.textContent = 'Toggling...';
     button.style.cursor = 'wait';
-    button.style.backgroundColor = '#f0f0f0';
     button.setAttribute('data-processing', 'true');
 
     const composeArea = findComposeArea();
     
     if (composeArea) {
-      TeXForGmail.log('Rendering LaTeX in compose area');
+      TeXForGmail.log('Toggling LaTeX rendering state');
       
-      // Perform immediate render
-      preserveCursorPosition(composeArea, () => {
-        const hasChanges = detectAndRenderLatex(composeArea);
-        
-        // Reset button state
-        setTimeout(() => {
-          buttonText.textContent = originalText;
-          button.style.cursor = 'pointer';
-          button.style.backgroundColor = '';
-          button.removeAttribute('data-processing');
-          TeXForGmail.processingStates.set(button, false);
-          
-          if (hasChanges) {
-            showToast('LaTeX equations rendered successfully');
-          } else {
-            showToast('No LaTeX equations found to render', 'info');
-          }
-        }, 300);
-      });
+      // Perform toggle operation (observer management is now handled inside toggleRendering)
+      const newState = toggleRendering(composeArea);
       
-      // Set up auto-render observer ONLY if not already set up
-      if (!TeXForGmail.composeObservers.has(composeArea)) {
-        setupAutoRenderObserver(composeArea);
-      }
+      // Reset button state immediately (no delay to prevent race condition)
+      buttonText.textContent = originalText;
+      button.style.cursor = 'pointer';
+      button.removeAttribute('data-processing');
+      TeXForGmail.processingStates.set(button, false);
       
     } else {
       // Reset button state
       buttonText.textContent = originalText;
       button.style.cursor = 'pointer';
-      button.style.backgroundColor = '';
       button.removeAttribute('data-processing');
       TeXForGmail.processingStates.set(button, false);
       
@@ -451,15 +594,26 @@
       existingObserver.disconnect();
     }
     
+    // Only set up observer if rendering is enabled
+    const isRenderingEnabled = getToggleState(composeArea);
+    if (!isRenderingEnabled) {
+      TeXForGmail.log('Not setting up observer - toggle is OFF');
+      return;
+    }
+    
     // Create new observer with proper debouncing
     const observer = new MutationObserver(debounce(() => {
-      scheduleRender(composeArea);
+      // Double-check toggle state (in case it changed)
+      const isStillEnabled = getToggleState(composeArea);
+      if (isStillEnabled) {
+        scheduleRender(composeArea);
+      }
     }, CONFIG.debounceDelay));
     
     observer.observe(composeArea, {
       childList: true,
-      subtree: true,
-      characterData: true
+      subtree: true
+      // Removed characterData: true - not needed for LaTeX detection
     });
     
     // Store observer reference for cleanup
@@ -479,6 +633,24 @@
     if (timeout) {
       clearTimeout(timeout);
       TeXForGmail.renderTimeouts.delete(composeArea);
+    }
+    
+    // Clean up toggle state
+    cleanupToggleState(composeArea);
+    
+    // Clean up processing states for buttons
+    const button = getButtonForComposeArea(composeArea);
+    if (button) {
+      TeXForGmail.processingStates.delete(button);
+    }
+  }
+  
+  // Complete cleanup for a toolbar and its button
+  function cleanupToolbarButton(toolbar) {
+    const button = TeXForGmail.composeButtons.get(toolbar);
+    if (button) {
+      TeXForGmail.composeButtons.delete(toolbar);
+      TeXForGmail.processingStates.delete(button);
     }
   }
 
@@ -549,6 +721,14 @@
         addTexButton(compose);
       }
     });
+    
+    // Clean up buttons for closed compose windows
+    const allToolbars = document.querySelectorAll('.aZ .J-J5-Ji, .aZ .J-Z-I, .gU .J-Z-I, [gh="tl"] .J-J5-Ji');
+    allToolbars.forEach(toolbar => {
+      if (!toolbar.closest('.M9, .AD, .aoI')) {
+        cleanupToolbarButton(toolbar);
+      }
+    });
   }
 
   // Set up mutation observer with debouncing
@@ -558,6 +738,35 @@
     this.observer = new MutationObserver(debouncedCheck);
     this.observer.observe(document.body, CONFIG.observerConfig);
     TeXForGmail.log('Observer watching for compose windows');
+    
+    // Set up send button interceptor for ensuring rendered math in emails
+    this.setupSendInterceptor();
+  };
+  
+  // Intercept send button clicks to ensure rendered math
+  TeXForGmail.setupSendInterceptor = function() {
+    document.addEventListener('click', function(event) {
+      const target = event.target;
+      
+      // Check if it's a send button (Gmail uses various selectors)
+      const sendButtonSelectors = [
+        '[data-tooltip*="Send"]',
+        '[aria-label*="Send"]',
+        '.T-I.J-J5-Ji.aoO.v7.T-I-atl.L3[role="button"]'
+      ];
+      
+      const isSendButton = sendButtonSelectors.some(selector => 
+        target.closest(selector) && target.closest(selector).textContent.includes('Send')
+      );
+      
+      if (isSendButton) {
+        TeXForGmail.log('Send button clicked, ensuring rendered math');
+        const composeArea = findComposeArea();
+        if (composeArea) {
+          ensureRenderedBeforeSend(composeArea);
+        }
+      }
+    }, true); // Use capture phase to intercept before Gmail's handlers
   };
 
   // Clean up on page unload
@@ -567,7 +776,7 @@
       TeXForGmail.log('Main observer disconnected');
     }
     
-    // Clean up all compose observers
+    // Clean up all compose observers and states
     TeXForGmail.composeObservers.forEach((observer, composeArea) => {
       cleanupComposeObserver(composeArea);
     });
@@ -576,6 +785,11 @@
     TeXForGmail.renderTimeouts.forEach((timeout) => {
       clearTimeout(timeout);
     });
+    
+    // Clear all WeakMaps (helps garbage collection)
+    TeXForGmail.composeButtons = new WeakMap();
+    TeXForGmail.processingStates = new WeakMap();
+    TeXForGmail.toggleStates = new WeakMap();
   });
 
   // Initialize when DOM is ready
