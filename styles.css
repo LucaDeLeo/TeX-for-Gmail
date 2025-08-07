@@ -9,8 +9,8 @@
   margin: 0 2px;
   vertical-align: middle;
   line-height: 1;
-  /* Performance optimization */
-  will-change: background-color;
+  /* Performance optimization - include border for transitions */
+  will-change: background-color, border-color;
   /* Accessibility */
   position: relative;
 }
@@ -24,8 +24,8 @@
   margin: 4px 0;
   vertical-align: middle;
   line-height: 1;
-  /* Performance optimization */
-  will-change: background-color;
+  /* Performance optimization - include border for transitions */
+  will-change: background-color, border-color;
   /* Accessibility */
   position: relative;
 }
@@ -61,24 +61,49 @@ p > .tex-math-display:only-child {
   pointer-events: none;
 }
 
-.tex-toast-error {
-  background-color: #f44336 !important;
+/* Use higher specificity instead of !important */
+div.tex-toast.tex-toast-error {
+  background-color: #f44336;
 }
 
-.tex-toast-info {
-  background-color: #2196F3 !important;
+div.tex-toast.tex-toast-info {
+  background-color: #2196F3;
 }
 
 /* Button processing state */
-.tex-button[data-processing="true"] {
+div.tex-button[data-processing="true"] {
   opacity: 0.7;
-  cursor: wait !important;
+  cursor: wait;
+  pointer-events: none; /* Prevent clicks during processing */
+}
+
+/* Toggle button states (Story 1.3) */
+/* Higher specificity to avoid need for !important */
+div.tex-button[data-toggle-state="active"] {
+  background-color: #c3f3c3;
+  border: 1px solid #4caf50;
+  box-shadow: 0 1px 2px rgba(76, 175, 80, 0.2);
+}
+
+div.tex-button[data-toggle-state="inactive"] {
+  background-color: transparent;
+  border: 1px solid #ccc;
+  opacity: 0.8;
+}
+
+/* Ensure button state overrides Gmail styles */
+div.tex-button[role="button"][data-toggle-state="active"] {
+  background-color: #c3f3c3;
+}
+
+div.tex-button[role="button"][data-toggle-state="inactive"] {
+  background-color: transparent;
 }
 
 /* Smooth transitions for math elements */
 .tex-math-inline,
 .tex-math-display {
-  transition: background-color 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 /* Hover effect for rendered math (subtle) */
