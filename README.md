@@ -77,19 +77,6 @@ Double dollar signs for centered display equations:
 $$\int_{-\infty}^{\infty} e^{-x^2} dx = \sqrt{\pi}$$
 ```
 
-### Supported LaTeX Commands
-
-Standard LaTeX mathematical notation including:
-- **Basic Operations:** `+`, `-`, `\times`, `\div`, `\pm`, `\mp`
-- **Fractions:** `\frac{a}{b}`, `\dfrac{a}{b}`
-- **Powers & Indices:** `x^2`, `x_i`, `x^{2n}`, `x_{ij}`
-- **Roots:** `\sqrt{x}`, `\sqrt[n]{x}`
-- **Greek Letters:** `\alpha`, `\beta`, `\gamma`, `\Delta`, `\Omega`
-- **Calculus:** `\int`, `\partial`, `\nabla`, `\sum`, `\prod`, `\lim`
-- **Matrices:** `\begin{pmatrix}`, `\begin{bmatrix}`, `\begin{vmatrix}`
-- **Sets:** `\in`, `\subset`, `\cup`, `\cap`, `\emptyset`
-- **Logic:** `\forall`, `\exists`, `\land`, `\lor`, `\neg`
-
 ### Smart Features
 
 #### Toggle States
@@ -117,8 +104,7 @@ When sending an email with toggle OFF:
 ### Critical Limitations
 1. **Privacy:** All LaTeX sent to external CodeCogs API (see privacy notice)
 2. **Offline Support:** No offline functionality - requires internet
-3. **Dark Mode:** White background images clash with Gmail dark theme
-4. **API Rate Limit:** Maximum 60 renders per minute
+3. **API Rate Limit:** Maximum 60 renders per minute
 
 ### Minor Limitations
 1. **Copy/Paste:** Cannot copy LaTeX source from rendered equations
@@ -175,157 +161,9 @@ TeX-for-Gmail/
    - Per-compose-area toggle states
    - Comprehensive cleanup on compose close
 
-### Performance Characteristics
-
-| Metric | Target | Actual | Notes |
-|--------|--------|--------|-------|
-| Initial Load | <100ms | ~50ms | Content script injection |
-| Render Time | <500ms | 200-400ms | Depends on network + API |
-| Memory Usage | <50MB | ~15-20MB | With 10 compose windows |
-| API Calls | 60/min | Enforced | Rate limited |
-| Debounce Delay | 500ms | 500ms | For auto-render |
-
-### Security Measures
-
-- **XSS Prevention:** LaTeX validation before API calls
-- **CSP Compliant:** No inline scripts or eval()
-- **Rate Limiting:** 60 API calls/minute maximum
-- **Input Sanitization:** URL encoding for API requests
-- **No Data Storage:** No user data persisted
-
-### Critical Bug Fixes (v1.0-beta)
-
-1. **Cursor Deletion Bug** - Fixed with absolute offset calculation
-2. **Memory Leaks** - Comprehensive cleanup with removal observers
-3. **Race Conditions** - Mutex patterns prevent concurrent operations
-4. **Send Interceptor** - Rewritten to prevent infinite recursion
-5. **Observer Issues** - Fixed characterData mutation detection
-6. **Inconsistent Rendering** - Text node normalization after restore
-7. **Code Block Rendering** - Added CODE/PRE/TT filtering
-
-## 🔧 Development
-
-### Prerequisites
-
-- Chrome browser (v88+)
-- Git for version control
-- Text editor or IDE
-- Basic JavaScript knowledge
-
-### Local Development Setup
-
-```bash
-# Clone repository
-git clone https://github.com/yourusername/tex-for-gmail.git
-cd tex-for-gmail
-
-# No build process needed - pure JavaScript
-
-# Load in Chrome:
-# 1. Navigate to chrome://extensions/
-# 2. Enable Developer Mode
-# 3. Click "Load unpacked"
-# 4. Select the directory
-```
-
-### Testing
-
-Manual testing checklist:
-1. ✅ Extension loads without errors
-2. ✅ TeX button appears in toolbar
-3. ✅ Toggle switches states correctly
-4. ✅ LaTeX renders with proper timing
-5. ✅ Cursor position preserved
-6. ✅ Send interceptor works
-7. ✅ Memory cleanup on close
-8. ✅ Code blocks not rendered
-
-### Debug Mode
-
-Enable debug logging in console:
-```javascript
-// In content.js, set:
-TeXForGmail.debugMode = true
-```
-
-## 🐛 Troubleshooting
-
-### Common Issues & Solutions
-
-**Extension not loading:**
-- Verify Chrome version 88+
-- Check Developer Mode enabled
-- Ensure all files present
-
-**TeX button missing:**
-- Hard refresh Gmail (Ctrl+Shift+R)
-- Try different compose modes
-- Check console for errors
-
-**LaTeX not rendering:**
-- Check internet connection
-- Verify LaTeX syntax
-- Check rate limit (60/min)
-- Ensure not in code block
-
-**Toggle not working:**
-- Wait for processing to complete
-- Check for compose area content
-- Verify button not disabled
-
-**Dark mode issues:**
-- Known limitation - white backgrounds
-- Workaround: Use light theme
-- Fix planned for v2.0
-
-## 🤝 Contributing
-
-Contributions welcome! See [CONCERNS_AND_ROADMAP.md](CONCERNS_AND_ROADMAP.md) for development priorities.
-
-### How to Contribute
-
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/amazing-feature`)
-3. Make changes and test thoroughly
-4. Commit (`git commit -m 'Add amazing feature'`)
-5. Push (`git push origin feature/amazing-feature`)
-6. Open Pull Request
-
-### Contribution Guidelines
-
-- Maintain existing code style
-- Add comprehensive comments
-- Update documentation
-- Test all edge cases
-- Consider privacy implications
-- Keep extension lightweight
-
-### Priority Areas
-
-1. **Local Rendering** - KaTeX/MathJax integration
-2. **Dark Mode Support** - Adaptive backgrounds
-3. **Caching System** - Reduce API calls
-4. **Test Suite** - Automated testing
-5. **Code Modularization** - Split monolithic file
-
 ## 📄 License
 
 MIT License - see [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- **CodeCogs** - LaTeX rendering API provider
-- **Gmail Team** - Platform and documentation
-- **Chrome Extensions Team** - Manifest V3 framework
-- **Open Source Community** - Inspiration and support
-
-## 📞 Support
-
-### Getting Help
-
-- **Issues:** [GitHub Issues](https://github.com/yourusername/tex-for-gmail/issues)
-- **Discussions:** [GitHub Discussions](https://github.com/yourusername/tex-for-gmail/discussions)
-- **Documentation:** [Wiki](https://github.com/yourusername/tex-for-gmail/wiki)
 
 ### Frequently Asked Questions
 
@@ -346,45 +184,6 @@ A: Not currently. Customization planned for future versions.
 
 **Q: Is there a keyboard shortcut?**  
 A: Not yet. Planned for future release.
-
-## 🚀 Roadmap
-
-### Version 1.0-beta (Current)
-✅ Core LaTeX rendering  
-✅ Toggle control  
-✅ Smart cursor preservation  
-✅ Memory leak prevention  
-✅ Send interceptor  
-✅ Code block protection  
-
-### Version 1.5 (Q2 2025)
-- [ ] Basic caching mechanism
-- [ ] Dark mode detection
-- [ ] Copy LaTeX source feature
-- [ ] Keyboard shortcuts
-- [ ] Performance optimizations
-
-### Version 2.0 (Q3 2025)
-- [ ] Local rendering (KaTeX/MathJax)
-- [ ] Offline support
-- [ ] User preferences
-- [ ] Custom themes
-- [ ] Advanced caching
-
-### Version 3.0 (Future)
-- [ ] Collaborative features
-- [ ] Equation library
-- [ ] Natural language to LaTeX
-- [ ] Cross-browser support
-
-## 📊 Project Status
-
-- **Version:** 1.0-beta
-- **Status:** Production Ready (with limitations)
-- **Last Updated:** August 13, 2025
-- **Active Development:** Yes
-- **Code Quality:** Comprehensive QA completed
-
 ---
 
 <div align="center">
