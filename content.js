@@ -126,13 +126,20 @@
 
   // Task 3 (Story 1.3): Toggle Logic - Source to Render and Back
   function restoreLatexSource(composeArea) {
+    // Safety check to prevent accidental text deletion
+    if (!composeArea || !composeArea.isConnected) {
+      TeXForGmail.log('Warning: Invalid compose area for restore operation');
+      return false;
+    }
+    
     // Restore all rendered math to LaTeX source
     const renderedElements = composeArea.querySelectorAll('.tex-math-inline, .tex-math-display');
+    TeXForGmail.log(`Restoring ${renderedElements.length} rendered LaTeX elements`);
     let restoredCount = 0;
     
     renderedElements.forEach(element => {
       const latex = element.getAttribute('data-latex');
-      if (latex) {
+      if (latex && element.parentNode) {
         const isDisplay = element.classList.contains('tex-math-display');
         const textNode = document.createTextNode(isDisplay ? `$$${latex}$$` : `$${latex}$`);
         element.parentNode.replaceChild(textNode, element);
@@ -165,6 +172,8 @@
   function toggleRendering(composeArea) {
     const currentState = getToggleState(composeArea);
     const newState = !currentState;
+    
+    TeXForGmail.log(`Toggle: current=${currentState}, new=${newState}`);
     
     // Update toggle state
     setToggleState(composeArea, newState);
@@ -780,7 +789,26 @@
     }, CONFIG.toastDuration);
   }
 
-  // Find compose area with multiple selector strategies
+  // Find compose area associated with a specific button
+  function findComposeAreaForButton(button) {
+    // Find the compose window that contains this button
+    const composeWindow = button.closest('.M9, .AD, .aoI');
+    if (composeWindow) {
+      // Look for compose area within this specific compose window
+      for (const selector of CONFIG.composeSelectors) {
+        const composeArea = composeWindow.querySelector(selector);
+        if (composeArea) {
+          TeXForGmail.log(`Compose area found for button with selector: ${selector}`);
+          return composeArea;
+        }
+      }
+    }
+    
+    TeXForGmail.log('Compose area not found for button');
+    return null;
+  }
+  
+  // Find compose area with multiple selector strategies (generic)
   function findComposeArea() {
     // First, check if the currently focused element is a compose area
     const activeElement = document.activeElement;
@@ -821,10 +849,10 @@
     button.setAttribute('role', 'button');
     button.setAttribute('tabindex', '0');
     button.setAttribute('aria-label', 'Toggle LaTeX rendering');
-    button.setAttribute('data-tooltip', 'LaTeX rendering is ON - Click to toggle OFF');
-    button.setAttribute('data-toggle-state', 'active'); // Initial active state
-    button.style.cssText = 'display: inline-flex !important; align-items: center; justify-content: center; user-select: none; margin: 0 8px; cursor: pointer; padding: 6px 12px; background: #4CAF50; color: white; border-radius: 4px; font-weight: bold; font-size: 14px; height: 30px; vertical-align: middle;';
-    button.innerHTML = '📐 TeX ON';
+    button.setAttribute('data-tooltip', 'LaTeX rendering is OFF - Click to toggle ON');
+    button.setAttribute('data-toggle-state', 'inactive'); // Initial inactive state
+    button.style.cssText = 'display: inline-flex !important; align-items: center; justify-content: center; user-select: none; margin: 0 8px; cursor: pointer; padding: 6px 12px; background: #9e9e9e; color: white; border-radius: 4px; font-weight: bold; font-size: 14px; height: 30px; vertical-align: middle;';
+    button.innerHTML = '📐 TeX OFF';
     
     return button;
   }
@@ -854,7 +882,8 @@
         button.style.cursor = 'wait';
         button.style.opacity = '0.6';
         
-        const composeArea = findComposeArea();
+        // Find the compose area associated with this specific button
+        const composeArea = findComposeAreaForButton(button);
         
         if (composeArea) {
           TeXForGmail.log('Toggling LaTeX rendering state');
@@ -1162,9 +1191,17 @@
       return;
     }
 
-    // Check if button already exists using WeakMap
+    // Check if button already exists using WeakMap or DOM check
     if (TeXForGmail.composeButtons.has(toolbar)) {
-      TeXForGmail.log('Button already exists for this toolbar');
+      TeXForGmail.log('Button already exists for this toolbar (WeakMap)');
+      return;
+    }
+    
+    // Additional DOM check for existing tex-button to prevent duplicates
+    const existingButton = toolbar.querySelector('.tex-button');
+    if (existingButton) {
+      TeXForGmail.log('Button already exists for this toolbar (DOM)');
+      TeXForGmail.composeButtons.set(toolbar, existingButton);
       return;
     }
 
@@ -1184,35 +1221,40 @@
     // Insert button at the end of the toolbar
     toolbar.appendChild(button);
     TeXForGmail.composeButtons.set(toolbar, button);
+    
+    // Store association between button and compose element for later retrieval
+    button.dataset.composeId = composeElement.id || Math.random().toString(36).substr(2, 9);
+    
     TeXForGmail.log('Button added to compose toolbar');
     
     // Make sure button is visible
     button.style.display = 'inline-flex !important';
     button.style.visibility = 'visible !important';
     
-    // Initialize rendering for this compose area
-    const composeArea = findComposeArea();
+    // Initialize rendering for this compose area - use the specific compose area for this button
+    const composeArea = findComposeAreaForButton(button);
     if (composeArea) {
-      // Set initial toggle state to active
-      setToggleState(composeArea, true);
+      // Set initial toggle state to INACTIVE (false) - user must explicitly turn ON
+      setToggleState(composeArea, false);
       
-      // Perform initial rendering
-      TeXForGmail.log('Performing initial LaTeX rendering');
-      detectAndRenderLatex(composeArea);
+      // Update button to show OFF state initially
+      updateButtonVisualState(button, false);
       
-      // Set up auto-render observer
-      setupAutoRenderObserver(composeArea);
+      // Don't perform initial rendering or set up observer - wait for user to turn ON
+      TeXForGmail.log('Button initialized in OFF state - click to enable LaTeX rendering');
     }
   }
 
   // Check for compose windows
   function checkForComposeWindow() {
-    // Look for all compose windows
+    // Look for all compose windows - use Set to avoid duplicates
+    const processedToolbars = new Set();
     const composeWindows = document.querySelectorAll('.M9, .AD, .aoI');
     
     composeWindows.forEach(compose => {
       const toolbar = compose.querySelector('.aZ');
-      if (toolbar) {
+      if (toolbar && !processedToolbars.has(toolbar)) {
+        processedToolbars.add(toolbar);
         addTexButton(compose);
       }
     });

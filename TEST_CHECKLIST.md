@@ -355,4 +355,4 @@ performComprehensiveCleanup(document.querySelector('[contenteditable="true"]'));
 ---
 
 *Last Updated: 2025-08-13*  
-*For automated testing, see test-*.html files in repository*
+*For automated testing, see test-*.html files in tests/ directory*
