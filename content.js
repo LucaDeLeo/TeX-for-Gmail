@@ -38,11 +38,12 @@
     composeObservers: new WeakMap(), // Track observers per compose area
     renderTimeouts: new WeakMap(), // Track render timeouts per compose area
     toggleStates: new WeakMap(), // Track toggle state per compose area
+    originalContent: new WeakMap(), // Store original content before rendering
     removalObservers: new WeakMap(), // Track removal observers for cleanup
     sendProcessingStates: new WeakMap(), // Track send processing states
     observerSetupFlags: new WeakMap(), // Prevent duplicate observer setup
     apiCallTimes: [], // Track API call timestamps for rate limiting
-    debugMode: false, // Set to true for verbose logging
+    debugMode: true, // Set to true for verbose logging (temporarily enabled for debugging)
     init() {
       console.log('🚀 TeX for Gmail: Extension initializing...');
       this.log('Extension initialized');
@@ -124,7 +125,7 @@
     return null;
   }
 
-  // Task 3 (Story 1.3): Toggle Logic - Source to Render and Back
+  // Robust restore function using saved snapshots
   function restoreLatexSource(composeArea) {
     // Safety check to prevent accidental text deletion
     if (!composeArea || !composeArea.isConnected) {
@@ -132,33 +133,94 @@
       return false;
     }
     
-    // Restore all rendered math to LaTeX source
-    const renderedElements = composeArea.querySelectorAll('.tex-math-inline, .tex-math-display');
-    TeXForGmail.log(`Restoring ${renderedElements.length} rendered LaTeX elements`);
-    let restoredCount = 0;
+    // Get the saved original content
+    const originalHTML = TeXForGmail.originalContent.get(composeArea);
     
-    renderedElements.forEach(element => {
-      const latex = element.getAttribute('data-latex');
-      if (latex && element.parentNode) {
-        const isDisplay = element.classList.contains('tex-math-display');
-        const textNode = document.createTextNode(isDisplay ? `$$${latex}$$` : `$${latex}$`);
-        element.parentNode.replaceChild(textNode, element);
-        restoredCount++;
+    if (!originalHTML && originalHTML !== '') {
+      TeXForGmail.log('Warning: No original content saved for this compose area');
+      // Fallback: Try to restore individual elements (old method as backup)
+      const renderedElements = composeArea.querySelectorAll('.tex-math-inline, .tex-math-display');
+      if (renderedElements.length === 0) {
+        TeXForGmail.log('No rendered elements to restore and no saved content');
+        return false;
       }
-    });
-    
-    // Normalize the compose area to merge adjacent text nodes
-    // This is critical for proper rendering when toggling back ON
-    // Without this, adjacent text nodes created during restore won't be merged,
-    // causing inconsistent rendering of equations that end up in standalone text nodes
-    if (restoredCount > 0) {
-      composeArea.normalize();
-      TeXForGmail.log(`Restored ${restoredCount} LaTeX expressions and normalized text nodes`);
-    } else {
-      TeXForGmail.log('No LaTeX expressions to restore');
+      
+      // Only use the old method if we have rendered elements but no saved content
+      TeXForGmail.log('Falling back to element-by-element restoration');
+      let restoredCount = 0;
+      renderedElements.forEach(element => {
+        const latex = element.getAttribute('data-latex');
+        if (latex && element.parentNode) {
+          const isDisplay = element.classList.contains('tex-math-display');
+          const textNode = document.createTextNode(isDisplay ? `$$${latex}$$` : `$${latex}$`);
+          element.parentNode.replaceChild(textNode, element);
+          restoredCount++;
+        }
+      });
+      if (restoredCount > 0) {
+        composeArea.normalize();
+      }
+      return restoredCount > 0;
     }
     
-    return restoredCount > 0;
+    // For Gmail, we need to handle content restoration carefully
+    TeXForGmail.log('Restoring original content from snapshot');
+    
+    try {
+      // First, try direct innerHTML restoration
+      composeArea.innerHTML = originalHTML;
+      
+      // Check if content was restored properly
+      if (composeArea.innerHTML.trim() === '' && originalHTML.trim() !== '') {
+        // Gmail might have rejected the HTML, try a different approach
+        TeXForGmail.log('Direct innerHTML restoration failed, trying text-based approach');
+        
+        // Extract text content from the saved HTML
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = originalHTML;
+        const textContent = tempDiv.textContent || tempDiv.innerText || '';
+        
+        if (textContent.trim()) {
+          // For Gmail, wrap content in divs as it expects
+          const lines = textContent.split('\n');
+          composeArea.innerHTML = '';
+          
+          lines.forEach(line => {
+            if (line.trim()) {
+              const div = document.createElement('div');
+              div.textContent = line;
+              composeArea.appendChild(div);
+            } else {
+              // Empty line - add a div with br
+              const div = document.createElement('div');
+              div.appendChild(document.createElement('br'));
+              composeArea.appendChild(div);
+            }
+          });
+          
+          TeXForGmail.log('Content restored using Gmail-compatible div structure');
+        }
+      }
+      
+      // Final safety check
+      if (composeArea.textContent.trim() === '' && originalHTML.trim() !== '') {
+        TeXForGmail.log('ERROR: Content restoration failed - compose area is empty');
+        // Last resort: set as plain text
+        composeArea.textContent = originalHTML.replace(/<[^>]*>/g, '');
+      }
+      
+    } catch (error) {
+      TeXForGmail.log('Error during content restoration:', error);
+      // Fallback to text content
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = originalHTML;
+      composeArea.textContent = tempDiv.textContent || originalHTML;
+    }
+    
+    // Clear the saved content after successful restore
+    TeXForGmail.originalContent.delete(composeArea);
+    
+    return true;
   }
 
   function rerenderAllLatex(composeArea) {
@@ -184,19 +246,24 @@
       updateButtonVisualState(button, newState);
     }
     
-    // Check if there's any RENDERED LaTeX content (not source)
-    const hasRenderedLatex = composeArea.querySelectorAll('.tex-math-inline, .tex-math-display').length > 0;
-    
     if (newState) {
-      // Toggle ON: Set up observer and try to render any LaTeX
+      // Toggle ON: Save original content BEFORE any rendering
+      const currentContent = composeArea.innerHTML;
+      const currentTextContent = composeArea.textContent || '';
+      
+      // Only save if we don't already have saved content (prevents overwriting on multiple toggles)
+      if (!TeXForGmail.originalContent.has(composeArea)) {
+        TeXForGmail.log(`Saving original content snapshot before rendering (${currentContent.length} chars HTML, ${currentTextContent.length} chars text)`);
+        TeXForGmail.originalContent.set(composeArea, currentContent);
+      }
+      
+      // Set up observer for future changes
       setupAutoRenderObserver(composeArea);
       
-      // Check if there's actual LaTeX source to render (more precise check)
-      const textContent = composeArea.textContent || '';
-      // Only check for valid LaTeX patterns, excluding common false positives
-      const hasLatexSource = /\$\$[^$\n]+\$\$/.test(textContent) || 
-                            (/(?<!\$)\$(?!\d)([^$\n]+?)\$(?!\d)/.test(textContent) && 
-                             !isCurrency(textContent));
+      // Check if there's actual LaTeX source to render
+      const hasLatexSource = /\$\$[^$\n]+\$\$/.test(currentTextContent) || 
+                            (/(?<!\$)\$(?!\d)([^$\n]+?)\$(?!\d)/.test(currentTextContent) && 
+                             !isCurrency(currentTextContent));
       
       if (hasLatexSource) {
         preserveCursorPosition(composeArea, () => {
@@ -205,7 +272,7 @@
       }
       showToast('LaTeX rendering ON');
     } else {
-      // Toggle OFF: Stop observer and restore any rendered LaTeX
+      // Toggle OFF: Stop observer and restore original content
       const observer = TeXForGmail.composeObservers.get(composeArea);
       if (observer) {
         observer.disconnect();
@@ -213,13 +280,34 @@
         TeXForGmail.log('Observer disconnected - toggle is OFF');
       }
       
-      if (hasRenderedLatex) {
-        preserveCursorPosition(composeArea, () => {
-          const restored = restoreLatexSource(composeArea);
-          if (restored) {
-            showToast('LaTeX source restored');
-          }
-        });
+      // Debug logging before restoration
+      const currentContent = composeArea.innerHTML;
+      const currentTextContent = composeArea.textContent || '';
+      TeXForGmail.log(`Before restore: ${currentContent.length} chars HTML, ${currentTextContent.length} chars text`);
+      
+      // Always try to restore if we have saved content
+      const hasSavedContent = TeXForGmail.originalContent.has(composeArea);
+      const hasRenderedLatex = composeArea.querySelectorAll('.tex-math-inline, .tex-math-display').length > 0;
+      
+      TeXForGmail.log(`Restore check: hasSavedContent=${hasSavedContent}, hasRenderedLatex=${hasRenderedLatex}`);
+      
+      if (hasSavedContent || hasRenderedLatex) {
+        // Don't use preserveCursorPosition for restoration as it can cause issues
+        const restored = restoreLatexSource(composeArea);
+        
+        // Debug logging after restoration
+        const afterContent = composeArea.innerHTML;
+        const afterTextContent = composeArea.textContent || '';
+        TeXForGmail.log(`After restore: ${afterContent.length} chars HTML, ${afterTextContent.length} chars text`);
+        
+        if (restored && afterTextContent.trim()) {
+          showToast('LaTeX source restored');
+        } else if (!afterTextContent.trim()) {
+          TeXForGmail.log('ERROR: Content appears empty after restoration!');
+          showToast('Error: Content restoration failed - please check console');
+        } else {
+          showToast('LaTeX rendering OFF');
+        }
       } else {
         showToast('LaTeX rendering OFF');
       }
@@ -705,6 +793,27 @@
     }
   }
 
+  // Helper function to extract content with LaTeX sources instead of rendered elements
+  function extractContentWithLatexSource(composeArea) {
+    // Clone the compose area to avoid modifying the original
+    const clone = composeArea.cloneNode(true);
+    
+    // Replace all rendered elements with their LaTeX source
+    const renderedElements = clone.querySelectorAll('.tex-math-inline, .tex-math-display');
+    renderedElements.forEach(element => {
+      const latex = element.getAttribute('data-latex');
+      if (latex) {
+        const isDisplay = element.classList.contains('tex-math-display');
+        const textNode = document.createTextNode(isDisplay ? `$$${latex}$$` : `$${latex}$`);
+        element.parentNode.replaceChild(textNode, element);
+      }
+    });
+    
+    // Normalize to merge text nodes
+    clone.normalize();
+    return clone.innerHTML;
+  }
+
   // Task 3: Debounced render function with processing flag management
   function scheduleRender(composeArea) {
     // Check if already processing
@@ -724,6 +833,13 @@
     const newTimeout = setTimeout(() => {
       // Clear scheduled flag
       composeArea.removeAttribute('data-tex-render-scheduled');
+      
+      // Update saved content BEFORE rendering (extract with LaTeX source, not rendered)
+      if (getToggleState(composeArea) && TeXForGmail.originalContent.has(composeArea)) {
+        const contentWithSource = extractContentWithLatexSource(composeArea);
+        TeXForGmail.originalContent.set(composeArea, contentWithSource);
+        TeXForGmail.log('Updated saved content snapshot with latest changes');
+      }
       
       // Only preserve cursor if compose area has focus
       if (composeArea.contains(document.activeElement) || composeArea === document.activeElement) {
@@ -1115,6 +1231,12 @@
     if (TeXForGmail.toggleStates.has(composeArea)) {
       TeXForGmail.toggleStates.delete(composeArea);
       TeXForGmail.log('Toggle state cleaned');
+    }
+    
+    // 4b. Clean up saved original content
+    if (TeXForGmail.originalContent.has(composeArea)) {
+      TeXForGmail.originalContent.delete(composeArea);
+      TeXForGmail.log('Original content snapshot cleaned');
     }
     
     // 5. Clean up button and processing states
