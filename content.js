@@ -217,8 +217,9 @@
       composeArea.textContent = tempDiv.textContent || originalHTML;
     }
     
-    // Clear the saved content after successful restore
-    TeXForGmail.originalContent.delete(composeArea);
+    // DO NOT delete the saved content - we need it for multiple toggle cycles
+    // The saved content will be cleared when the compose area is removed from DOM
+    TeXForGmail.log('Original content restored (keeping snapshot for future restores)');
     
     return true;
   }
@@ -247,14 +248,16 @@
     }
     
     if (newState) {
-      // Toggle ON: Save original content BEFORE any rendering
+      // Toggle ON: Save original content ONLY if this is the first time enabling for this compose area
       const currentContent = composeArea.innerHTML;
       const currentTextContent = composeArea.textContent || '';
       
-      // Only save if we don't already have saved content (prevents overwriting on multiple toggles)
+      // Only save if we don't already have saved content (this ensures we keep the ORIGINAL content)
       if (!TeXForGmail.originalContent.has(composeArea)) {
-        TeXForGmail.log(`Saving original content snapshot before rendering (${currentContent.length} chars HTML, ${currentTextContent.length} chars text)`);
+        TeXForGmail.log(`Saving ORIGINAL content snapshot (first time enabling) - ${currentContent.length} chars HTML, ${currentTextContent.length} chars text`);
         TeXForGmail.originalContent.set(composeArea, currentContent);
+      } else {
+        TeXForGmail.log(`Using existing saved content (not overwriting) - toggle count preserved`);
       }
       
       // Set up observer for future changes
@@ -793,27 +796,6 @@
     }
   }
 
-  // Helper function to extract content with LaTeX sources instead of rendered elements
-  function extractContentWithLatexSource(composeArea) {
-    // Clone the compose area to avoid modifying the original
-    const clone = composeArea.cloneNode(true);
-    
-    // Replace all rendered elements with their LaTeX source
-    const renderedElements = clone.querySelectorAll('.tex-math-inline, .tex-math-display');
-    renderedElements.forEach(element => {
-      const latex = element.getAttribute('data-latex');
-      if (latex) {
-        const isDisplay = element.classList.contains('tex-math-display');
-        const textNode = document.createTextNode(isDisplay ? `$$${latex}$$` : `$${latex}$`);
-        element.parentNode.replaceChild(textNode, element);
-      }
-    });
-    
-    // Normalize to merge text nodes
-    clone.normalize();
-    return clone.innerHTML;
-  }
-
   // Task 3: Debounced render function with processing flag management
   function scheduleRender(composeArea) {
     // Check if already processing
@@ -834,12 +816,8 @@
       // Clear scheduled flag
       composeArea.removeAttribute('data-tex-render-scheduled');
       
-      // Update saved content BEFORE rendering (extract with LaTeX source, not rendered)
-      if (getToggleState(composeArea) && TeXForGmail.originalContent.has(composeArea)) {
-        const contentWithSource = extractContentWithLatexSource(composeArea);
-        TeXForGmail.originalContent.set(composeArea, contentWithSource);
-        TeXForGmail.log('Updated saved content snapshot with latest changes');
-      }
+      // DO NOT update saved content - we want to keep the original clean version
+      // The saved content should only be set ONCE when first enabling LaTeX
       
       // Only preserve cursor if compose area has focus
       if (composeArea.contains(document.activeElement) || composeArea === document.activeElement) {
