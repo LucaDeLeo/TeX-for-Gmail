@@ -98,16 +98,17 @@
 
   // Task 2 (Story 1.3): Button Visual State Management
   function updateButtonVisualState(button, isActive) {
+    // Fixed: Ensure visual state matches actual toggle state
     if (isActive) {
       button.setAttribute('data-toggle-state', 'active');
-      button.setAttribute('data-tooltip', 'LaTeX rendering is ON - Click to toggle');
+      button.setAttribute('data-tooltip', 'LaTeX rendering is ON - Click to toggle OFF');
       button.style.background = '#4CAF50';
-      button.innerHTML = '📐 TeX';
+      button.innerHTML = '📐 TeX ON';
     } else {
       button.setAttribute('data-toggle-state', 'inactive');
-      button.setAttribute('data-tooltip', 'LaTeX rendering is OFF - Click to toggle');
+      button.setAttribute('data-tooltip', 'LaTeX rendering is OFF - Click to toggle ON');
       button.style.background = '#9e9e9e';
-      button.innerHTML = '📐 TeX';
+      button.innerHTML = '📐 TeX OFF';
     }
   }
 
@@ -139,7 +140,17 @@
       }
     });
     
-    TeXForGmail.log(`Restored ${restoredCount} LaTeX expressions to source`);
+    // Normalize the compose area to merge adjacent text nodes
+    // This is critical for proper rendering when toggling back ON
+    // Without this, adjacent text nodes created during restore won't be merged,
+    // causing inconsistent rendering of equations that end up in standalone text nodes
+    if (restoredCount > 0) {
+      composeArea.normalize();
+      TeXForGmail.log(`Restored ${restoredCount} LaTeX expressions and normalized text nodes`);
+    } else {
+      TeXForGmail.log('No LaTeX expressions to restore');
+    }
+    
     return restoredCount > 0;
   }
 
@@ -175,7 +186,7 @@
           // Toggle ON: Render all LaTeX and start observer
           rerenderAllLatex(composeArea);
           setupAutoRenderObserver(composeArea); // Start observing
-          showToast('LaTeX rendering enabled');
+          showToast('LaTeX rendering ON');
         } else {
           // Toggle OFF: Restore source LaTeX and stop observer
           const observer = TeXForGmail.composeObservers.get(composeArea);
@@ -197,14 +208,14 @@
       // No LaTeX content, just toggle the state and observer
       if (newState) {
         setupAutoRenderObserver(composeArea);
-        showToast('LaTeX rendering enabled');
+        showToast('LaTeX rendering ON');
       } else {
         const observer = TeXForGmail.composeObservers.get(composeArea);
         if (observer) {
           observer.disconnect();
           TeXForGmail.composeObservers.delete(composeArea);
         }
-        showToast('LaTeX rendering disabled');
+        showToast('LaTeX rendering OFF');
       }
     }
     
@@ -279,13 +290,15 @@
       NodeFilter.SHOW_TEXT,
       {
         acceptNode: function(node) {
-          // Skip if parent is already processed or is a script/style
+          // Skip if parent is already processed or is a script/style/code/pre element
           if (node.parentElement?.classList?.contains('tex-math-inline') ||
               node.parentElement?.classList?.contains('tex-math-display') ||
               node.parentElement?.classList?.contains('tex-render-error') ||
               node.parentElement?.getAttribute('data-processed') === 'true' ||
               node.parentElement?.tagName === 'SCRIPT' ||
-              node.parentElement?.tagName === 'STYLE') {
+              node.parentElement?.tagName === 'STYLE' ||
+              node.parentElement?.tagName === 'CODE' ||
+              node.parentElement?.tagName === 'PRE') {
             return NodeFilter.FILTER_REJECT;
           }
           
@@ -295,10 +308,13 @@
             return NodeFilter.FILTER_REJECT;
           }
           
-          // Skip if parent or any ancestor is being processed
+          // Skip if parent or any ancestor is being processed or is a code/pre element
           let ancestor = node.parentElement;
           while (ancestor && ancestor !== element) {
-            if (ancestor.getAttribute('data-tex-processing') === 'true') {
+            if (ancestor.getAttribute('data-tex-processing') === 'true' ||
+                ancestor.tagName === 'CODE' ||
+                ancestor.tagName === 'PRE' ||
+                ancestor.tagName === 'TT') {
               return NodeFilter.FILTER_REJECT;
             }
             ancestor = ancestor.parentElement;
@@ -586,66 +602,75 @@
           return;
         }
 
-        // Check for display math first (higher priority)
-        let lastIndex = 0;
+        // Process both display and inline math in a single pass
+        const matches = [];
         let match;
-        const newNodes = [];
-        let foundMath = false;
-
-        // Process display math
+        
+        // Find all display math matches
         LATEX_PATTERNS.display.lastIndex = 0;
         while ((match = LATEX_PATTERNS.display.exec(text)) !== null) {
-          foundMath = true;
-          
-          // Add text before the match
-          if (match.index > lastIndex) {
-            newNodes.push(document.createTextNode(text.substring(lastIndex, match.index)));
-          }
-          
-          // Create and add math element
-          const latex = match[1];
-          const imgUrl = getCodeCogsUrl(latex, true);
-          if (imgUrl) {
-            const mathElement = createMathWrapper(latex, true, imgUrl);
-            newNodes.push(mathElement);
-          } else {
-            // Keep original text if validation fails
-            newNodes.push(document.createTextNode(match[0]));
-          }
-          
-          lastIndex = match.index + match[0].length;
+          matches.push({
+            type: 'display',
+            start: match.index,
+            end: match.index + match[0].length,
+            latex: match[1],
+            full: match[0]
+          });
         }
-
-        // If no display math found, process inline math
-        if (!foundMath) {
-          LATEX_PATTERNS.inline.lastIndex = 0;
-          lastIndex = 0;
+        
+        // Find all inline math matches
+        LATEX_PATTERNS.inline.lastIndex = 0;
+        while ((match = LATEX_PATTERNS.inline.exec(text)) !== null) {
+          // Check if this overlaps with any display math
+          let overlaps = false;
+          for (const displayMatch of matches) {
+            if (displayMatch.type === 'display' && 
+                match.index >= displayMatch.start && 
+                match.index < displayMatch.end) {
+              overlaps = true;
+              break;
+            }
+          }
           
-          while ((match = LATEX_PATTERNS.inline.exec(text)) !== null) {
-            foundMath = true;
-            
+          if (!overlaps) {
+            matches.push({
+              type: 'inline',
+              start: match.index,
+              end: match.index + match[0].length,
+              latex: match[1],
+              full: match[0]
+            });
+          }
+        }
+        
+        // Sort matches by position
+        matches.sort((a, b) => a.start - b.start);
+        
+        // Process matches if any found
+        if (matches.length > 0) {
+          const newNodes = [];
+          let lastIndex = 0;
+          
+          for (const match of matches) {
             // Add text before the match
-            if (match.index > lastIndex) {
-              newNodes.push(document.createTextNode(text.substring(lastIndex, match.index)));
+            if (match.start > lastIndex) {
+              newNodes.push(document.createTextNode(text.substring(lastIndex, match.start)));
             }
             
             // Create and add math element
-            const latex = match[1];
-            const imgUrl = getCodeCogsUrl(latex, false);
+            const imgUrl = getCodeCogsUrl(match.latex, match.type === 'display');
             if (imgUrl) {
-              const mathElement = createMathWrapper(latex, false, imgUrl);
+              const mathElement = createMathWrapper(match.latex, match.type === 'display', imgUrl);
               newNodes.push(mathElement);
             } else {
               // Keep original text if validation fails
-              newNodes.push(document.createTextNode(match[0]));
+              newNodes.push(document.createTextNode(match.full));
             }
             
-            lastIndex = match.index + match[0].length;
+            lastIndex = match.end;
           }
-        }
-
-        // Add remaining text after last match
-        if (foundMath) {
+          
+          // Add remaining text after last match
           if (lastIndex < text.length) {
             newNodes.push(document.createTextNode(text.substring(lastIndex)));
           }
@@ -796,10 +821,10 @@
     button.setAttribute('role', 'button');
     button.setAttribute('tabindex', '0');
     button.setAttribute('aria-label', 'Toggle LaTeX rendering');
-    button.setAttribute('data-tooltip', 'LaTeX rendering is ON - Click to toggle');
+    button.setAttribute('data-tooltip', 'LaTeX rendering is ON - Click to toggle OFF');
     button.setAttribute('data-toggle-state', 'active'); // Initial active state
     button.style.cssText = 'display: inline-flex !important; align-items: center; justify-content: center; user-select: none; margin: 0 8px; cursor: pointer; padding: 6px 12px; background: #4CAF50; color: white; border-radius: 4px; font-weight: bold; font-size: 14px; height: 30px; vertical-align: middle;';
-    button.innerHTML = '📐 TeX';
+    button.innerHTML = '📐 TeX ON';
     
     return button;
   }
@@ -825,8 +850,6 @@
     const processToggle = new Promise((resolve, reject) => {
       try {
         // Update button state temporarily during processing
-        const originalText = button.textContent;
-        const originalBackground = button.style.background;
         button.textContent = '⏳ Processing...';
         button.style.cursor = 'wait';
         button.style.opacity = '0.6';
@@ -841,28 +864,28 @@
             try {
               const newState = toggleRendering(composeArea);
               
-              // Reset button visual state after successful toggle
-              button.textContent = originalText;
+              // Update button visual state to match new toggle state
               button.style.cursor = 'pointer';
               button.style.opacity = '1';
-              button.style.background = originalBackground;
+              updateButtonVisualState(button, newState);
               
               resolve(newState);
             } catch (error) {
               TeXForGmail.log('Error during toggle:', error);
-              button.textContent = originalText;
+              // Restore button to current state
               button.style.cursor = 'pointer';
               button.style.opacity = '1';
-              button.style.background = originalBackground;
+              const currentState = composeArea ? getToggleState(composeArea) : true;
+              updateButtonVisualState(button, currentState);
               reject(error);
             }
           });
         } else {
           // Reset button state on error
-          button.textContent = originalText;
           button.style.cursor = 'pointer';
           button.style.opacity = '1';
-          button.style.background = originalBackground;
+          button.textContent = '📐 TeX ON';
+          button.style.background = '#4CAF50';
           
           showToast('Could not find compose area. Please try again.', 'error');
           reject(new Error('Compose area not found'));
@@ -920,19 +943,50 @@
       return;
     }
     
-    // Create new observer with proper debouncing
-    const observer = new MutationObserver(debounce(() => {
+    // Create debounced render function once for this observer
+    const debouncedRender = debounce(() => {
       // Double-check toggle state (in case it changed)
       const isStillEnabled = getToggleState(composeArea);
       if (isStillEnabled) {
+        TeXForGmail.log('Observer triggered, scheduling render');
         scheduleRender(composeArea);
+      } else {
+        TeXForGmail.log('Observer triggered but toggle is OFF');
       }
-    }, CONFIG.debounceDelay));
+    }, CONFIG.debounceDelay);
+    
+    // Create new observer
+    const observer = new MutationObserver((mutations) => {
+      // Check if any mutation contains text changes that might be LaTeX
+      let hasTextChanges = false;
+      for (const mutation of mutations) {
+        if (mutation.type === 'childList') {
+          // Check added nodes for text content
+          for (const node of mutation.addedNodes) {
+            if (node.nodeType === Node.TEXT_NODE || 
+                (node.nodeType === Node.ELEMENT_NODE && node.textContent)) {
+              hasTextChanges = true;
+              break;
+            }
+          }
+        } else if (mutation.type === 'characterData') {
+          // Direct text edits within existing text nodes
+          if (mutation.target.nodeType === Node.TEXT_NODE) {
+            hasTextChanges = true;
+          }
+        }
+        if (hasTextChanges) break;
+      }
+      
+      if (hasTextChanges) {
+        debouncedRender();
+      }
+    });
     
     observer.observe(composeArea, {
       childList: true,
-      subtree: true
-      // Removed characterData: true - not needed for LaTeX detection
+      subtree: true,
+      characterData: true // Re-enable to catch text edits
     });
     
       // Store observer reference for cleanup
