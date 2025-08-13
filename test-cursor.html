@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gmail - Test Cursor Behavior</title>
+    <style>
+        body {
+            font-family: 'Google Sans', Roboto, Arial, sans-serif;
+            background: #f0f0f0;
+            margin: 0;
+            padding: 20px;
+        }
+        .gmail-container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+        }
+        .compose-header {
+            background: #404040;
+            color: white;
+            padding: 16px;
+            border-radius: 8px 8px 0 0;
+            font-size: 14px;
+        }
+        .compose-body {
+            padding: 16px;
+        }
+        .test-info {
+            background: #e3f2fd;
+            padding: 12px;
+            border-radius: 4px;
+            margin-bottom: 16px;
+            font-size: 14px;
+            color: #1565c0;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 12px;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+        }
+        .test-title {
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #333;
+        }
+        /* Gmail compose toolbar styling */
+        .M9, .AD {
+            position: relative;
+        }
+        .aZ {
+            padding: 8px 0;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            align-items: center;
+        }
+        .J-J5-Ji, .J-Z-I {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .wG {
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            background: #f1f3f4;
+            border: 1px solid #dadce0;
+            margin-right: 8px;
+        }
+        .wG:hover {
+            background: #e8eaed;
+        }
+        /* Gmail compose area styling */
+        [g_editable="true"], 
+        [contenteditable="true"][role="textbox"],
+        .editable[contenteditable="true"],
+        div[aria-label*="Message Body"] {
+            min-height: 200px;
+            padding: 12px;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            outline: none;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        [contenteditable="true"]:focus {
+            border-color: #4285f4;
+        }
+        .cursor-position {
+            background: #fff3cd;
+            padding: 8px;
+            margin-top: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        /* Styles for rendered LaTeX */
+        .tex-math-inline img,
+        .tex-math-display img {
+            vertical-align: middle;
+        }
+        .tex-math-display {
+            display: block;
+            text-align: center;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="gmail-container">
+        <div class="compose-header">
+            Cursor Behavior Test
+        </div>
+        <div class="compose-body M9">
+            <div class="test-info">
+                📋 <strong>Test Instructions:</strong> Click the TeX button when cursor is at different positions and verify no text deletion occurs.
+            </div>
+            
+            <!-- Gmail-like toolbar -->
+            <div class="aZ">
+                <div class="J-J5-Ji">
+                    <div class="wG" role="button">B</div>
+                    <div class="wG" role="button">I</div>
+                    <div class="wG" role="button">U</div>
+                    <!-- Extension button will be added here -->
+                </div>
+            </div>
+            
+            <!-- Test Section 1: No LaTeX content -->
+            <div class="test-section">
+                <div class="test-title">Test 1: Regular text only (no LaTeX)</div>
+                <div 
+                    contenteditable="true" 
+                    g_editable="true"
+                    role="textbox"
+                    aria-label="Message Body Test 1"
+                    class="editable"
+                    id="test1"
+                >This is regular text without any LaTeX. Place your cursor here and click the TeX button. No text should be deleted.</div>
+                <div class="cursor-position" id="cursor1">Cursor position: -</div>
+            </div>
+            
+            <!-- Test Section 2: Mixed content -->
+            <div class="test-section">
+                <div class="test-title">Test 2: Mixed text and LaTeX</div>
+                <div 
+                    contenteditable="true" 
+                    g_editable="true"
+                    role="textbox"
+                    aria-label="Message Body Test 2"
+                    class="editable"
+                    id="test2"
+                >Start text $E = mc^2$ middle text $a^2 + b^2 = c^2$ end text</div>
+                <div class="cursor-position" id="cursor2">Cursor position: -</div>
+            </div>
+            
+            <!-- Test Section 3: Complex content -->
+            <div class="test-section">
+                <div class="test-title">Test 3: Multiple lines with LaTeX</div>
+                <div 
+                    contenteditable="true" 
+                    g_editable="true"
+                    role="textbox"
+                    aria-label="Message Body Test 3"
+                    class="editable"
+                    id="test3"
+                >Line 1: Regular text here
+Line 2: Some math $\sqrt{x}$ here
+Line 3: Display equation follows
+$$\int_0^1 x^2 dx = \frac{1}{3}$$
+Line 4: More regular text</div>
+                <div class="cursor-position" id="cursor3">Cursor position: -</div>
+            </div>
+            
+            <!-- Test Section 4: Empty area for typing -->
+            <div class="test-section">
+                <div class="test-title">Test 4: Empty area for typing test</div>
+                <div 
+                    contenteditable="true" 
+                    g_editable="true"
+                    role="textbox"
+                    aria-label="Message Body Test 4"
+                    class="editable"
+                    id="test4"
+                ></div>
+                <div class="cursor-position" id="cursor4">Cursor position: -</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Load the extension content script -->
+    <script src="content.js"></script>
+    
+    <!-- Cursor position tracker -->
+    <script>
+        // Track and display cursor position for debugging
+        function updateCursorDisplay(testId) {
+            const element = document.getElementById(testId);
+            const cursorDisplay = document.getElementById('cursor' + testId.slice(-1));
+            
+            element.addEventListener('click', updatePosition);
+            element.addEventListener('keyup', updatePosition);
+            element.addEventListener('focus', updatePosition);
+            
+            function updatePosition() {
+                const selection = window.getSelection();
+                if (selection.rangeCount > 0) {
+                    const range = selection.getRangeAt(0);
+                    const container = range.startContainer;
+                    const offset = range.startOffset;
+                    const nodeType = container.nodeType === Node.TEXT_NODE ? 'TEXT' : 'ELEMENT';
+                    const text = container.textContent ? container.textContent.substring(Math.max(0, offset - 10), offset + 10) : '';
+                    
+                    cursorDisplay.innerHTML = `Cursor: ${nodeType} node, offset: ${offset}, context: "${text.replace(/\n/g, '\\n')}"`;
+                }
+            }
+        }
+        
+        // Initialize cursor tracking for all test areas
+        updateCursorDisplay('test1');
+        updateCursorDisplay('test2');
+        updateCursorDisplay('test3');
+        updateCursorDisplay('test4');
+        
+        // Log button clicks for debugging
+        document.addEventListener('click', function(e) {
+            if (e.target.classList.contains('tex-button')) {
+                console.log('TeX button clicked');
+                // Check content before and after
+                setTimeout(() => {
+                    document.querySelectorAll('[contenteditable]').forEach(el => {
+                        console.log(`Content of ${el.id}:`, el.textContent.substring(0, 100));
+                    });
+                }, 100);
+            }
+        });
+    </script>
+</body>
+</html>

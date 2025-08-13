@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gmail - Test LaTeX Extension</title>
+    <style>
+        body {
+            font-family: 'Google Sans', Roboto, Arial, sans-serif;
+            background: #f0f0f0;
+            margin: 0;
+            padding: 20px;
+        }
+        .gmail-container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+        }
+        .compose-header {
+            background: #404040;
+            color: white;
+            padding: 16px;
+            border-radius: 8px 8px 0 0;
+            font-size: 14px;
+        }
+        .compose-body {
+            padding: 16px;
+        }
+        .compose-field {
+            display: flex;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .compose-field label {
+            width: 60px;
+            color: #666;
+            font-size: 14px;
+        }
+        .compose-field input {
+            flex: 1;
+            border: none;
+            outline: none;
+            font-size: 14px;
+            padding: 4px;
+        }
+        /* Gmail compose toolbar styling */
+        .M9, .AD {
+            position: relative;
+        }
+        .aZ {
+            padding: 8px 0;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            align-items: center;
+        }
+        .J-J5-Ji, .J-Z-I {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .wG {
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            background: #f1f3f4;
+            border: 1px solid #dadce0;
+            margin-right: 8px;
+        }
+        .wG:hover {
+            background: #e8eaed;
+        }
+        /* Gmail compose area styling */
+        [g_editable="true"], 
+        [contenteditable="true"][role="textbox"],
+        .editable[contenteditable="true"],
+        div[aria-label*="Message Body"] {
+            min-height: 300px;
+            padding: 12px;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            outline: none;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        [contenteditable="true"]:focus {
+            border-color: #4285f4;
+        }
+        .send-button {
+            background: #1a73e8;
+            color: white;
+            padding: 8px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+            margin-top: 12px;
+        }
+        .send-button:hover {
+            background: #1666d1;
+        }
+        /* Styles for rendered LaTeX */
+        .tex-math-inline img,
+        .tex-math-display img {
+            vertical-align: middle;
+        }
+        .tex-math-display {
+            display: block;
+            text-align: center;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="gmail-container">
+        <div class="compose-header">
+            New Message
+        </div>
+        <div class="compose-body M9">
+            <div class="compose-field">
+                <label>To</label>
+                <input type="text" placeholder="Recipients">
+            </div>
+            <div class="compose-field">
+                <label>Subject</label>
+                <input type="text" value="Testing LaTeX Equations">
+            </div>
+            
+            <!-- Gmail-like toolbar -->
+            <div class="aZ">
+                <div class="J-J5-Ji">
+                    <div class="wG" role="button">B</div>
+                    <div class="wG" role="button">I</div>
+                    <div class="wG" role="button">U</div>
+                    <div class="wG" role="button">📎</div>
+                    <div class="wG" role="button">🔗</div>
+                    <!-- Extension button will be added here -->
+                </div>
+            </div>
+            
+            <!-- Gmail compose area with proper attributes -->
+            <div 
+                contenteditable="true" 
+                g_editable="true"
+                role="textbox"
+                aria-label="Message Body"
+                class="editable"
+                id="compose-area"
+            >
+                <p>Hello! Let's test some LaTeX equations:</p>
+                <p>Here's an inline equation: $E = mc^2$ and another one $\sqrt{a^2 + b^2}$</p>
+                <p>Here's a display equation: $$\int_{-\infty}^{\infty} e^{-x^2} dx = \sqrt{\pi}$$</p>
+                <p>Let's try a more complex equation: $\sum_{n=1}^{\infty} \frac{1}{n^2} = \frac{\pi^2}{6}$</p>
+                <p>And a matrix: $$\begin{pmatrix} a & b \\ c & d \end{pmatrix}$$</p>
+                <p>Currency should not be rendered: $100 or $50.99 or $1,000</p>
+                <p>Type more LaTeX here to test real-time rendering...</p>
+            </div>
+            
+            <button class="send-button" data-tooltip="Send">Send</button>
+        </div>
+    </div>
+    
+    <!-- Load the extension content script -->
+    <script src="content.js"></script>
+</body>
+</html>
