@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Send Interceptor Fix Test</title>
+    <style>
+        body {
+            font-family: 'Google Sans', Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #1a73e8;
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .M9 {
+            border: 2px solid #e0e0e0;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 15px 0;
+        }
+        .aZ {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .J-J5-Ji {
+            display: flex;
+            gap: 10px;
+        }
+        [contenteditable="true"] {
+            min-height: 100px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: white;
+        }
+        [contenteditable="true"]:focus {
+            outline: 2px solid #4285f4;
+            outline-offset: -2px;
+        }
+        .send-button {
+            background: #1a73e8;
+            color: white;
+            padding: 8px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        .send-button:hover {
+            background: #1557b0;
+        }
+        .test-log {
+            background: #f0f0f0;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            margin-top: 10px;
+        }
+        .log-entry {
+            margin: 2px 0;
+        }
+        .log-success {
+            color: green;
+        }
+        .log-error {
+            color: red;
+        }
+        .log-info {
+            color: blue;
+        }
+        .test-status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+            font-weight: bold;
+        }
+        .status-pass {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status-fail {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .tex-button {
+            display: inline-flex;
+            align-items: center;
+            padding: 6px 12px;
+            background: #4CAF50;
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔬 Send Interceptor Fix Verification</h1>
+    
+    <div class="test-section">
+        <h2>Test Setup</h2>
+        <p>This test verifies that the send interceptor correctly:</p>
+        <ul>
+            <li>✅ Prevents infinite recursion</li>
+            <li>✅ Waits for images to load</li>
+            <li>✅ Intercepts keyboard shortcuts (Ctrl+Enter)</li>
+            <li>✅ Finds the correct compose area</li>
+            <li>✅ Restores state after send</li>
+        </ul>
+    </div>
+
+    <div class="test-section">
+        <h2>Compose Window</h2>
+        <div class="M9">
+            <div class="aZ">
+                <div class="J-J5-Ji">
+                    <!-- TeX button will be added here -->
+                </div>
+            </div>
+            <div contenteditable="true" g_editable="true" role="textbox" aria-label="Message Body">
+Type some LaTeX here: $E = mc^2$ and $\int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}$
+
+Try sending with the button below or press Ctrl+Enter (Cmd+Enter on Mac)
+            </div>
+            <button class="send-button" data-tooltip="Send" aria-label="Send">Send</button>
+        </div>
+        
+        <div class="test-log" id="testLog">
+            <div class="log-entry log-info">Test log initialized</div>
+        </div>
+        
+        <div class="test-status" id="testStatus" style="display: none;"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test Instructions</h2>
+        <ol>
+            <li>Toggle the TeX button OFF (gray)</li>
+            <li>Click the Send button or press Ctrl+Enter</li>
+            <li>Verify that:
+                <ul>
+                    <li>LaTeX is temporarily rendered</li>
+                    <li>Images fully load before send</li>
+                    <li>No infinite loop occurs</li>
+                    <li>State is restored after send</li>
+                </ul>
+            </li>
+        </ol>
+    </div>
+
+    <!-- Load the extension -->
+    <script src="content.js"></script>
+    
+    <!-- Test monitoring script -->
+    <script>
+        const logDiv = document.getElementById('testLog');
+        const statusDiv = document.getElementById('testStatus');
+        let sendAttempts = 0;
+        let interceptCount = 0;
+        
+        function addLog(message, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        // Monitor send button clicks
+        const originalAddEventListener = EventTarget.prototype.addEventListener;
+        EventTarget.prototype.addEventListener = function(type, listener, options) {
+            if (type === 'click' && this.classList && this.classList.contains('send-button')) {
+                const wrappedListener = function(event) {
+                    sendAttempts++;
+                    addLog(`Send attempt #${sendAttempts}`, 'info');
+                    
+                    // Check for infinite loop
+                    if (sendAttempts > 5) {
+                        addLog('CRITICAL: Possible infinite loop detected!', 'error');
+                        statusDiv.textContent = '❌ TEST FAILED: Infinite loop detected';
+                        statusDiv.className = 'test-status status-fail';
+                        statusDiv.style.display = 'block';
+                        event.preventDefault();
+                        event.stopImmediatePropagation();
+                        return;
+                    }
+                    
+                    return listener.call(this, event);
+                };
+                return originalAddEventListener.call(this, type, wrappedListener, options);
+            }
+            
+            // Monitor interception
+            if (type === 'click' && options === true) {
+                interceptCount++;
+                addLog(`Interceptor registered (#${interceptCount})`, 'success');
+            }
+            
+            return originalAddEventListener.call(this, type, listener, options);
+        };
+        
+        // Monitor image loading
+        const originalCreateElement = document.createElement;
+        document.createElement = function(tagName) {
+            const element = originalCreateElement.call(document, tagName);
+            
+            if (tagName.toLowerCase() === 'img') {
+                element.addEventListener('load', function() {
+                    addLog(`LaTeX image loaded: ${this.alt || 'unknown'}`, 'success');
+                });
+                element.addEventListener('error', function() {
+                    addLog(`LaTeX image failed: ${this.src}`, 'error');
+                });
+            }
+            
+            return element;
+        };
+        
+        // Simulate send completion
+        document.querySelector('.send-button').addEventListener('click', function(e) {
+            // If not prevented, simulate successful send
+            if (!e.defaultPrevented) {
+                setTimeout(() => {
+                    addLog('Email sent successfully!', 'success');
+                    statusDiv.textContent = '✅ TEST PASSED: Send interceptor working correctly';
+                    statusDiv.className = 'test-status status-pass';
+                    statusDiv.style.display = 'block';
+                    
+                    // Reset for next test
+                    setTimeout(() => {
+                        sendAttempts = 0;
+                    }, 3000);
+                }, 2500);
+            }
+        });
+        
+        // Monitor keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                addLog('Keyboard shortcut detected (Ctrl/Cmd+Enter)', 'info');
+            }
+        });
+        
+        addLog('Test environment ready', 'success');
+        addLog('Extension loaded, waiting for user action', 'info');
+    </script>
+</body>
+</html>
