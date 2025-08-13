@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Pattern Matching Debug Test</title>
+    <style>
+        #compose {
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin: 20px;
+            min-height: 100px;
+        }
+        .log {
+            background: #f0f0f0;
+            padding: 10px;
+            margin: 10px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+        button {
+            margin: 10px;
+            padding: 5px 15px;
+        }
+    </style>
+</head>
+<body>
+    <h2>Pattern Matching Debug Test</h2>
+    <div id="compose" contenteditable="true">
+        <p>Here's an inline equation: $E = mc^2$ and another one $\sqrt{a^2 + b^2}$</p>
+    </div>
+    <button onclick="simulateRestore()">Simulate Restore</button>
+    <button onclick="checkTextNodes()">Check Text Nodes</button>
+    <button onclick="testPattern()">Test Pattern Matching</button>
+    <button onclick="normalizeNodes()">Normalize Text Nodes</button>
+    <button onclick="simulateActualRendering()">Simulate Actual Rendering</button>
+    <div id="log" class="log"></div>
+
+    <script>
+        function log(msg) {
+            document.getElementById('log').textContent += msg + '\n';
+        }
+
+        function clearLog() {
+            document.getElementById('log').textContent = '';
+        }
+
+        function simulateRestore() {
+            clearLog();
+            const p = document.querySelector('#compose p');
+            
+            // Clear paragraph
+            p.innerHTML = '';
+            
+            // Add text nodes like restoreLatexSource would
+            p.appendChild(document.createTextNode("Here's an inline equation: "));
+            p.appendChild(document.createTextNode("$E = mc^2$"));
+            p.appendChild(document.createTextNode(" and another one "));
+            p.appendChild(document.createTextNode("$\\sqrt{a^2 + b^2}$"));
+            
+            log('Created 4 adjacent text nodes');
+            checkTextNodes();
+        }
+
+        function checkTextNodes() {
+            clearLog();
+            const p = document.querySelector('#compose p');
+            const walker = document.createTreeWalker(
+                p,
+                NodeFilter.SHOW_TEXT,
+                {
+                    acceptNode: function(node) {
+                        if (node.textContent.trim().length > 0) {
+                            return NodeFilter.FILTER_ACCEPT;
+                        }
+                        return NodeFilter.FILTER_REJECT;
+                    }
+                }
+            );
+            
+            let node;
+            let count = 0;
+            while (node = walker.nextNode()) {
+                count++;
+                log(`Text node ${count}: "${node.textContent}"`);
+                log(`  Parent: ${node.parentNode.tagName}`);
+                log(`  Length: ${node.textContent.length}`);
+            }
+            log(`\nTotal text nodes found: ${count}`);
+        }
+
+        function testPattern() {
+            clearLog();
+            const p = document.querySelector('#compose p');
+            const walker = document.createTreeWalker(
+                p,
+                NodeFilter.SHOW_TEXT,
+                null
+            );
+            
+            const pattern = /(?<!\$)\$(?!\d)([^\$\n]+?)\$(?!\d)/g;
+            let node;
+            let nodeCount = 0;
+            
+            while (node = walker.nextNode()) {
+                nodeCount++;
+                const text = node.textContent;
+                log(`\nProcessing node ${nodeCount}: "${text}"`);
+                
+                // Reset pattern
+                pattern.lastIndex = 0;
+                let match;
+                let matchCount = 0;
+                
+                while ((match = pattern.exec(text)) !== null) {
+                    matchCount++;
+                    log(`  Match ${matchCount}: "${match[0]}" at index ${match.index}`);
+                }
+                
+                if (matchCount === 0) {
+                    log('  No matches found');
+                }
+            }
+        }
+
+        function normalizeNodes() {
+            clearLog();
+            const p = document.querySelector('#compose p');
+            p.normalize();
+            log('Called normalize() on paragraph');
+            checkTextNodes();
+        }
+
+        function simulateActualRendering() {
+            clearLog();
+            const p = document.querySelector('#compose p');
+            const pattern = /(?<!\$)\$(?!\d)([^\$\n]+?)\$(?!\d)/g;
+            
+            // Get all text nodes like findTextNodes does
+            const walker = document.createTreeWalker(
+                p,
+                NodeFilter.SHOW_TEXT,
+                {
+                    acceptNode: function(node) {
+                        if (node.textContent.trim().length > 0) {
+                            return NodeFilter.FILTER_ACCEPT;
+                        }
+                        return NodeFilter.FILTER_REJECT;
+                    }
+                }
+            );
+            
+            const textNodes = [];
+            let node;
+            while (node = walker.nextNode()) {
+                textNodes.push(node);
+            }
+            
+            log(`Found ${textNodes.length} text nodes to process\n`);
+            
+            // Process each text node like the extension does
+            textNodes.forEach((textNode, index) => {
+                // Skip if parent was marked as processed
+                if (textNode.parentNode?.getAttribute('data-tex-processing-node') === 'true') {
+                    log(`Skipping node ${index + 1}: parent marked as processing`);
+                    return;
+                }
+                
+                const text = textNode.textContent;
+                log(`\nProcessing node ${index + 1}: "${text}"`);
+                
+                // Find matches
+                pattern.lastIndex = 0;
+                const matches = [];
+                let match;
+                
+                while ((match = pattern.exec(text)) !== null) {
+                    matches.push({
+                        start: match.index,
+                        end: match.index + match[0].length,
+                        latex: match[1],
+                        full: match[0]
+                    });
+                }
+                
+                if (matches.length > 0) {
+                    log(`  Found ${matches.length} match(es)`);
+                    
+                    // Mark parent as processing
+                    const parent = textNode.parentNode;
+                    parent.setAttribute('data-tex-processing-node', 'true');
+                    
+                    // Create new nodes
+                    const newNodes = [];
+                    let lastIndex = 0;
+                    
+                    for (const m of matches) {
+                        // Add text before match
+                        if (m.start > lastIndex) {
+                            newNodes.push(document.createTextNode(text.substring(lastIndex, m.start)));
+                        }
+                        
+                        // Add placeholder for rendered math
+                        const span = document.createElement('span');
+                        span.textContent = `[RENDERED: ${m.latex}]`;
+                        span.style.color = 'blue';
+                        newNodes.push(span);
+                        
+                        lastIndex = m.end;
+                    }
+                    
+                    // Add remaining text
+                    if (lastIndex < text.length) {
+                        newNodes.push(document.createTextNode(text.substring(lastIndex)));
+                    }
+                    
+                    // Replace text node
+                    log(`  Replacing with ${newNodes.length} new nodes`);
+                    newNodes.forEach(n => {
+                        parent.insertBefore(n, textNode);
+                    });
+                    parent.removeChild(textNode);
+                    
+                    // Clear processing flag
+                    parent.removeAttribute('data-tex-processing-node');
+                } else {
+                    log('  No matches found');
+                }
+            });
+            
+            log('\n=== Rendering complete ===');
+            checkTextNodes();
+        }
+    </script>
+</body>
+</html>

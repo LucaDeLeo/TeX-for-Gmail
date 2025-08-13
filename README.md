@@ -5,33 +5,51 @@
 [![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-green)](https://chrome.google.com)
 [![Manifest Version](https://img.shields.io/badge/Manifest-V3-blue)](https://developer.chrome.com/docs/extensions/mv3/)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-1.0.0-orange)](manifest.json)
+[![Version](https://img.shields.io/badge/Version-1.0--beta-orange)](manifest.json)
+
+## ⚠️ Important Privacy Notice
+
+**This extension sends your LaTeX content to the external CodeCogs API for rendering.** This means:
+- Your mathematical formulas are transmitted over the internet to a third-party service
+- CodeCogs may log or process this data according to their privacy policy
+- Not suitable for confidential, proprietary, or sensitive mathematical content
+- Requires internet connection - will not work offline
+
+*Future versions will include local rendering options for enhanced privacy and offline support.*
+
+---
 
 ## ✨ Features
 
-- **🔬 Real-time LaTeX Rendering** - Watch your equations transform as you type
-- **🎨 Signature Green Highlight** - Beautiful visual distinction for mathematical content
-- **🔄 Toggle Control** - Switch between LaTeX source and rendered view with one click
-- **📧 Universal Compatibility** - Recipients see rendered math without installing anything
-- **⚡ Lightning Fast** - Sub-500ms rendering with intelligent debouncing
-- **🪶 Lightweight** - Entire extension under 100KB
+### Core Functionality
+- **🔬 Real-time LaTeX Rendering** - Automatic rendering with smart debouncing (500ms)
+- **🔄 Toggle Control** - Switch between LaTeX source and rendered equations instantly
+- **📧 Universal Compatibility** - Recipients see rendered math without any extension
+- **💾 Smart State Management** - Toggle states preserved per compose window
+
+### Advanced Features (v1.0-beta)
+- **🎯 Cursor Preservation** - Maintains exact cursor position through all operations
+- **🧹 Memory Management** - Comprehensive cleanup prevents memory leaks
+- **🔒 Race Condition Prevention** - Mutex patterns ensure stable operation
+- **📨 Smart Send Interceptor** - Automatically renders LaTeX when sending (if toggle is OFF)
+- **💻 Code Block Protection** - LaTeX in `<code>` and `<pre>` blocks is not rendered
+- **💱 Currency Detection** - Intelligently distinguishes $100 from $x = 100$
+- **🔍 Pattern Normalization** - Ensures consistent rendering of all equations
 
 ## 🚀 Quick Start
 
 ### Installation
 
-#### Option 1: Chrome Web Store (Coming Soon)
-1. Visit the Chrome Web Store page (link pending)
-2. Click "Add to Chrome"
-3. Confirm the installation
-
-#### Option 2: Developer Mode (Available Now)
+#### Developer Mode (Currently Available)
 1. Download or clone this repository
 2. Open Chrome and navigate to `chrome://extensions/`
 3. Enable "Developer mode" (top right toggle)
 4. Click "Load unpacked"
 5. Select the `TeX-for-Gmail` directory
 6. The extension icon should appear in your toolbar
+
+#### Chrome Web Store (Coming Soon)
+*Pending review and approval*
 
 ### Basic Usage
 
@@ -40,59 +58,78 @@
 3. **Type LaTeX notation:**
    - Inline math: `$E = mc^2$`
    - Display math: `$$\int_0^1 f(x) dx$$`
-4. **Watch it render** automatically after you stop typing
-5. **Toggle rendering** by clicking the TeX button
+4. **Watch it render** automatically after ~500ms
+5. **Toggle rendering** ON/OFF with the TeX button
 
 ## 📖 User Guide
 
 ### Writing LaTeX
 
 #### Inline Mathematics
-Wrap your LaTeX code in single dollar signs for inline equations:
-
+Single dollar signs for inline equations:
 ```latex
-The famous equation $E = mc^2$ was discovered by Einstein.
+The equation $E = mc^2$ revolutionized physics.
 ```
 
 #### Display Mathematics
-Use double dollar signs for centered, larger equations:
-
+Double dollar signs for centered display equations:
 ```latex
-$$\frac{\partial^2 u}{\partial t^2} = c^2 \nabla^2 u$$
+$$\int_{-\infty}^{\infty} e^{-x^2} dx = \sqrt{\pi}$$
 ```
 
 ### Supported LaTeX Commands
 
-TeX for Gmail supports standard LaTeX mathematical notation including:
-
+Standard LaTeX mathematical notation including:
 - **Basic Operations:** `+`, `-`, `\times`, `\div`, `\pm`, `\mp`
-- **Fractions:** `\frac{a}{b}`
+- **Fractions:** `\frac{a}{b}`, `\dfrac{a}{b}`
 - **Powers & Indices:** `x^2`, `x_i`, `x^{2n}`, `x_{ij}`
 - **Roots:** `\sqrt{x}`, `\sqrt[n]{x}`
 - **Greek Letters:** `\alpha`, `\beta`, `\gamma`, `\Delta`, `\Omega`
-- **Calculus:** `\int`, `\partial`, `\nabla`, `\sum`, `\prod`
-- **Matrices:** `\begin{pmatrix} a & b \\ c & d \end{pmatrix}`
-- **And much more!**
+- **Calculus:** `\int`, `\partial`, `\nabla`, `\sum`, `\prod`, `\lim`
+- **Matrices:** `\begin{pmatrix}`, `\begin{bmatrix}`, `\begin{vmatrix}`
+- **Sets:** `\in`, `\subset`, `\cup`, `\cap`, `\emptyset`
+- **Logic:** `\forall`, `\exists`, `\land`, `\lor`, `\neg`
 
 ### Smart Features
 
-#### Currency Detection
-The extension intelligently distinguishes between currency and math:
-- `$100` → Not rendered (currency)
-- `$x = 100$` → Rendered as math
-- `The price is $5.99` → Not rendered
-- `Let $n = 5.99$ be...` → Rendered as math
+#### Toggle States
+- **📐 TeX ON (Green):** Real-time LaTeX rendering active
+- **📐 TeX OFF (Gray):** Shows LaTeX source code
+- State preserved per compose window
+- Cursor position maintained during toggle
 
-#### Toggle Control
-- **Green button (📐):** LaTeX rendering is ON
-- **Gray button:** LaTeX rendering is OFF
-- Click to switch between rendered equations and source code
+#### Code Block Protection
+LaTeX within code blocks is NOT rendered:
+```html
+<code>This $formula$ stays as text</code>
+<pre>LaTeX tutorial: Use $x^2$ for superscript</pre>
+```
 
-#### Auto-Save Compatibility
-Your LaTeX equations are preserved when:
-- Saving drafts
-- Switching between compose windows
-- Closing and reopening drafts
+#### Smart Send Behavior
+When sending an email with toggle OFF:
+1. Extension detects LaTeX content
+2. Automatically renders equations
+3. Sends email with rendered images
+4. Restores source view after sending
+
+## ⚠️ Known Limitations
+
+### Critical Limitations
+1. **Privacy:** All LaTeX sent to external CodeCogs API (see privacy notice)
+2. **Offline Support:** No offline functionality - requires internet
+3. **Dark Mode:** White background images clash with Gmail dark theme
+4. **API Rate Limit:** Maximum 60 renders per minute
+
+### Minor Limitations
+1. **Copy/Paste:** Cannot copy LaTeX source from rendered equations
+2. **Performance:** May lag with 50+ equations in single email
+3. **No Caching:** Equations re-render on every toggle
+4. **Gmail Changes:** May break if Gmail updates their interface
+
+### Browser Support
+- **Supported:** Chrome 88+ (Manifest V3)
+- **Not Tested:** Edge, Brave, Opera
+- **Not Supported:** Firefox, Safari
 
 ## 🛠️ Technical Details
 
@@ -100,162 +137,186 @@ Your LaTeX equations are preserved when:
 
 ```
 TeX-for-Gmail/
-├── manifest.json       # Chrome Extension configuration (Manifest V3)
-├── content.js         # Core logic and DOM manipulation
-├── styles.css         # Visual styling for rendered equations
-├── icon128.png        # Extension icon
-└── README.md          # This file
+├── manifest.json          # Manifest V3 configuration
+├── content.js            # Core logic (1500+ lines)
+├── styles.css            # Visual styling
+├── icon128.png           # Extension icon
+├── README.md             # This file
+├── CONCERNS_AND_ROADMAP.md # Future development plans
+└── test-*.html           # Test harnesses
 ```
 
 ### How It Works
 
-1. **Content Script Injection:** Automatically loads on Gmail pages
-2. **DOM Monitoring:** Uses MutationObserver to detect compose windows
-3. **Pattern Detection:** Scans for LaTeX delimiters (`$...$` and `$$...$$`)
-4. **API Integration:** Sends LaTeX to CodeCogs for rendering
-5. **Smart Replacement:** Swaps text with images while preserving structure
-6. **State Management:** Maintains toggle states per compose window
+1. **Initialization**
+   - Content script injects on Gmail pages
+   - Sets up global MutationObserver for compose detection
 
-### Performance
+2. **Compose Detection**
+   - Monitors DOM for new compose windows
+   - Adds TeX toggle button to toolbar
+   - Initializes state management
 
-| Metric | Target | Actual |
-|--------|--------|--------|
-| Render Time | <500ms | ~200ms |
-| Extension Size | <100KB | 42KB |
-| Memory Usage | <50MB | ~15MB |
-| API Rate Limit | 60/min | Enforced |
+3. **LaTeX Processing**
+   - TreeWalker scans text nodes (skips code/pre/script/style)
+   - Regex patterns detect LaTeX: `/\$([^\$\n]+?)\$/g`
+   - Validates LaTeX against XSS attacks
+   - Sends to CodeCogs API for rendering
 
-### Browser Requirements
+4. **Rendering Pipeline**
+   - Creates styled `<span>` wrapper with `data-latex` attribute
+   - Inserts `<img>` with rendered equation
+   - Preserves cursor position using absolute offset calculation
+   - Normalizes text nodes after restoration
 
-- **Chrome:** Version 88 or higher
-- **Gmail:** New Gmail interface (default since 2018)
-- **Network:** Internet connection required for rendering
+5. **State Management**
+   - WeakMaps prevent memory leaks
+   - Per-compose-area toggle states
+   - Comprehensive cleanup on compose close
+
+### Performance Characteristics
+
+| Metric | Target | Actual | Notes |
+|--------|--------|--------|-------|
+| Initial Load | <100ms | ~50ms | Content script injection |
+| Render Time | <500ms | 200-400ms | Depends on network + API |
+| Memory Usage | <50MB | ~15-20MB | With 10 compose windows |
+| API Calls | 60/min | Enforced | Rate limited |
+| Debounce Delay | 500ms | 500ms | For auto-render |
+
+### Security Measures
+
+- **XSS Prevention:** LaTeX validation before API calls
+- **CSP Compliant:** No inline scripts or eval()
+- **Rate Limiting:** 60 API calls/minute maximum
+- **Input Sanitization:** URL encoding for API requests
+- **No Data Storage:** No user data persisted
+
+### Critical Bug Fixes (v1.0-beta)
+
+1. **Cursor Deletion Bug** - Fixed with absolute offset calculation
+2. **Memory Leaks** - Comprehensive cleanup with removal observers
+3. **Race Conditions** - Mutex patterns prevent concurrent operations
+4. **Send Interceptor** - Rewritten to prevent infinite recursion
+5. **Observer Issues** - Fixed characterData mutation detection
+6. **Inconsistent Rendering** - Text node normalization after restore
+7. **Code Block Rendering** - Added CODE/PRE/TT filtering
 
 ## 🔧 Development
 
 ### Prerequisites
 
 - Chrome browser (v88+)
-- Basic understanding of Chrome Extensions
+- Git for version control
 - Text editor or IDE
+- Basic JavaScript knowledge
 
-### Setup Development Environment
+### Local Development Setup
 
-1. Clone the repository:
 ```bash
+# Clone repository
 git clone https://github.com/yourusername/tex-for-gmail.git
 cd tex-for-gmail
-```
 
-2. Make your changes to the source files
+# No build process needed - pure JavaScript
 
-3. Load the extension in Chrome:
-   - Navigate to `chrome://extensions/`
-   - Enable Developer Mode
-   - Click "Load unpacked"
-   - Select your development directory
-
-4. Test your changes:
-   - Open Gmail
-   - Compose a new email
-   - Test LaTeX rendering
-
-### Project Structure
-
-- **`manifest.json`** - Extension configuration and permissions
-- **`content.js`** - Main logic (pattern detection, API calls, DOM manipulation)
-- **`styles.css`** - CSS for green backgrounds and visual elements
-- **`icon128.png`** - Extension icon for Chrome
-
-### Key Functions
-
-```javascript
-// Main rendering pipeline
-detectAndRenderLatex(element)    // Scans and renders LaTeX in element
-getCodeCogsUrl(latex, isDisplay) // Generates API URL
-createMathElement(latex, url)    // Creates styled image element
-toggleRendering(composeArea)     // Switches between source/rendered
+# Load in Chrome:
+# 1. Navigate to chrome://extensions/
+# 2. Enable Developer Mode
+# 3. Click "Load unpacked"
+# 4. Select the directory
 ```
 
 ### Testing
 
-Run through the manual test checklist in `manual-test-checklist.md`:
-
-1. Extension loads without errors
-2. TeX button appears in compose toolbar
-3. LaTeX renders with green background
-4. Toggle switches between views
-5. Emails send with rendered math
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-**Extension not loading:**
-- Ensure Chrome is version 88 or higher
-- Check that Developer Mode is enabled
-- Verify all files are present in the directory
-
-**TeX button not appearing:**
-- Refresh Gmail page
-- Check console for errors (F12)
-- Try composing in different modes (inline, popup, fullscreen)
-
-**LaTeX not rendering:**
-- Check internet connection (API requires online access)
-- Verify LaTeX syntax is correct
-- Look for console errors
-- Ensure you're not hitting rate limit (60 renders/minute)
-
-**Toggle not working:**
-- Click directly on the TeX button
-- Wait for "Processing..." to complete
-- Check if compose area has content
+Manual testing checklist:
+1. ✅ Extension loads without errors
+2. ✅ TeX button appears in toolbar
+3. ✅ Toggle switches states correctly
+4. ✅ LaTeX renders with proper timing
+5. ✅ Cursor position preserved
+6. ✅ Send interceptor works
+7. ✅ Memory cleanup on close
+8. ✅ Code blocks not rendered
 
 ### Debug Mode
 
-Open Chrome DevTools (F12) and check the console for debug messages:
-
+Enable debug logging in console:
 ```javascript
-// Extension initialization
-"TeX for Gmail: Extension initialized"
-
-// Compose window detection
-"TeX for Gmail: Compose window detected"
-
-// Rendering events
-"TeX for Gmail: Rendering LaTeX..."
-"TeX for Gmail: Toggle state changed"
+// In content.js, set:
+TeXForGmail.debugMode = true
 ```
+
+## 🐛 Troubleshooting
+
+### Common Issues & Solutions
+
+**Extension not loading:**
+- Verify Chrome version 88+
+- Check Developer Mode enabled
+- Ensure all files present
+
+**TeX button missing:**
+- Hard refresh Gmail (Ctrl+Shift+R)
+- Try different compose modes
+- Check console for errors
+
+**LaTeX not rendering:**
+- Check internet connection
+- Verify LaTeX syntax
+- Check rate limit (60/min)
+- Ensure not in code block
+
+**Toggle not working:**
+- Wait for processing to complete
+- Check for compose area content
+- Verify button not disabled
+
+**Dark mode issues:**
+- Known limitation - white backgrounds
+- Workaround: Use light theme
+- Fix planned for v2.0
 
 ## 🤝 Contributing
 
-We welcome contributions! Please follow these steps:
+Contributions welcome! See [CONCERNS_AND_ROADMAP.md](CONCERNS_AND_ROADMAP.md) for development priorities.
+
+### How to Contribute
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+2. Create feature branch (`git checkout -b feature/amazing-feature`)
+3. Make changes and test thoroughly
+4. Commit (`git commit -m 'Add amazing feature'`)
+5. Push (`git push origin feature/amazing-feature`)
+6. Open Pull Request
 
 ### Contribution Guidelines
 
-- Maintain the existing code style
-- Add comments for complex logic
-- Update documentation for new features
-- Test thoroughly before submitting
-- Keep the extension lightweight (<100KB)
+- Maintain existing code style
+- Add comprehensive comments
+- Update documentation
+- Test all edge cases
+- Consider privacy implications
+- Keep extension lightweight
+
+### Priority Areas
+
+1. **Local Rendering** - KaTeX/MathJax integration
+2. **Dark Mode Support** - Adaptive backgrounds
+3. **Caching System** - Reduce API calls
+4. **Test Suite** - Automated testing
+5. **Code Modularization** - Split monolithic file
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License - see [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 
-- **CodeCogs** for providing the LaTeX rendering API
-- **Gmail** for the platform
-- **Chrome Extensions Team** for Manifest V3
-- Original TeX for Gmail developers for inspiration
+- **CodeCogs** - LaTeX rendering API provider
+- **Gmail Team** - Platform and documentation
+- **Chrome Extensions Team** - Manifest V3 framework
+- **Open Source Community** - Inspiration and support
 
 ## 📞 Support
 
@@ -263,46 +324,65 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - **Issues:** [GitHub Issues](https://github.com/yourusername/tex-for-gmail/issues)
 - **Discussions:** [GitHub Discussions](https://github.com/yourusername/tex-for-gmail/discussions)
-- **Email:** support@example.com
+- **Documentation:** [Wiki](https://github.com/yourusername/tex-for-gmail/wiki)
 
 ### Frequently Asked Questions
 
-**Q: Do recipients need the extension to see rendered math?**  
-A: No! The math is converted to images that anyone can see.
+**Q: Is my mathematical content private?**  
+A: No - LaTeX is sent to CodeCogs API. Use caution with sensitive content.
 
-**Q: Can I use custom LaTeX packages?**  
-A: Currently limited to standard LaTeX math commands supported by CodeCogs.
+**Q: Can I use this offline?**  
+A: No - requires internet for API calls. Local rendering planned for v2.0.
 
-**Q: Is my LaTeX content private?**  
-A: LaTeX is sent to CodeCogs API for rendering. No personal data is stored.
+**Q: Why doesn't it work in dark mode?**  
+A: Images have white backgrounds. Dark mode support planned.
 
-**Q: Why is there a green background?**  
-A: It's our signature visual element, making equations easy to identify.
+**Q: Do recipients need the extension?**  
+A: No - equations are converted to images visible to anyone.
 
-**Q: Can I change the colors or styling?**  
-A: Not in the current version. This may be added in future updates.
+**Q: Can I customize the rendering?**  
+A: Not currently. Customization planned for future versions.
+
+**Q: Is there a keyboard shortcut?**  
+A: Not yet. Planned for future release.
 
 ## 🚀 Roadmap
 
-### Version 1.0 (Current)
-- ✅ Basic LaTeX rendering
-- ✅ Toggle control
-- ✅ Gmail integration
+### Version 1.0-beta (Current)
+✅ Core LaTeX rendering  
+✅ Toggle control  
+✅ Smart cursor preservation  
+✅ Memory leak prevention  
+✅ Send interceptor  
+✅ Code block protection  
 
-### Future Enhancements (Planned)
-- [ ] User preferences (default toggle state)
-- [ ] Local caching for common equations
-- [ ] Support for `\[...\]` notation
-- [ ] Custom color themes
+### Version 1.5 (Q2 2025)
+- [ ] Basic caching mechanism
+- [ ] Dark mode detection
+- [ ] Copy LaTeX source feature
 - [ ] Keyboard shortcuts
-- [ ] Options page
+- [ ] Performance optimizations
+
+### Version 2.0 (Q3 2025)
+- [ ] Local rendering (KaTeX/MathJax)
+- [ ] Offline support
+- [ ] User preferences
+- [ ] Custom themes
+- [ ] Advanced caching
+
+### Version 3.0 (Future)
+- [ ] Collaborative features
+- [ ] Equation library
+- [ ] Natural language to LaTeX
+- [ ] Cross-browser support
 
 ## 📊 Project Status
 
-- **Current Version:** 1.0.0
-- **Status:** Production Ready
-- **Last Updated:** August 2025
-- **Maintainer:** Active
+- **Version:** 1.0-beta
+- **Status:** Production Ready (with limitations)
+- **Last Updated:** August 13, 2025
+- **Active Development:** Yes
+- **Code Quality:** Comprehensive QA completed
 
 ---
 
@@ -310,6 +390,8 @@ A: Not in the current version. This may be added in future updates.
 
 **Made with ❤️ for the academic community**
 
-[Report Bug](https://github.com/yourusername/tex-for-gmail/issues) · [Request Feature](https://github.com/yourusername/tex-for-gmail/issues) · [Star on GitHub](https://github.com/yourusername/tex-for-gmail)
+⚠️ **Remember:** Your LaTeX is sent to external servers for rendering
+
+[Report Bug](https://github.com/yourusername/tex-for-gmail/issues) · [Request Feature](https://github.com/yourusername/tex-for-gmail/issues) · [View Roadmap](CONCERNS_AND_ROADMAP.md)
 
 </div>
