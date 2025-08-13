@@ -140,10 +140,11 @@ TeX-for-Gmail/
 ├── manifest.json          # Manifest V3 configuration
 ├── content.js            # Core logic (1500+ lines)
 ├── styles.css            # Visual styling
-├── icon128.png           # Extension icon
+├── icon128.png           # Extension icon (128x128)
 ├── README.md             # This file
 ├── CONCERNS_AND_ROADMAP.md # Future development plans
-└── test-*.html           # Test harnesses
+└── tests/                # Test harnesses
+    └── test-*.html       # Test files
 ```
 
 ### How It Works
