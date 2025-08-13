@@ -184,46 +184,43 @@
       updateButtonVisualState(button, newState);
     }
     
-    // Check if there's any LaTeX content first
-    const hasLatexContent = composeArea.querySelectorAll('.tex-math-inline, .tex-math-display').length > 0 ||
-                            /\$[^$\n]+\$|\$\$[^$\n]+\$\$/.test(composeArea.textContent);
+    // Check if there's any RENDERED LaTeX content (not source)
+    const hasRenderedLatex = composeArea.querySelectorAll('.tex-math-inline, .tex-math-display').length > 0;
     
-    if (hasLatexContent) {
-      // Only preserve cursor if there's LaTeX to process
-      preserveCursorPosition(composeArea, () => {
-        if (newState) {
-          // Toggle ON: Render all LaTeX and start observer
+    if (newState) {
+      // Toggle ON: Set up observer and try to render any LaTeX
+      setupAutoRenderObserver(composeArea);
+      
+      // Check if there's actual LaTeX source to render (more precise check)
+      const textContent = composeArea.textContent || '';
+      // Only check for valid LaTeX patterns, excluding common false positives
+      const hasLatexSource = /\$\$[^$\n]+\$\$/.test(textContent) || 
+                            (/(?<!\$)\$(?!\d)([^$\n]+?)\$(?!\d)/.test(textContent) && 
+                             !isCurrency(textContent));
+      
+      if (hasLatexSource) {
+        preserveCursorPosition(composeArea, () => {
           rerenderAllLatex(composeArea);
-          setupAutoRenderObserver(composeArea); // Start observing
-          showToast('LaTeX rendering ON');
-        } else {
-          // Toggle OFF: Restore source LaTeX and stop observer
-          const observer = TeXForGmail.composeObservers.get(composeArea);
-          if (observer) {
-            observer.disconnect();
-            TeXForGmail.composeObservers.delete(composeArea);
-            TeXForGmail.log('Observer disconnected - toggle is OFF');
-          }
-          
+        });
+      }
+      showToast('LaTeX rendering ON');
+    } else {
+      // Toggle OFF: Stop observer and restore any rendered LaTeX
+      const observer = TeXForGmail.composeObservers.get(composeArea);
+      if (observer) {
+        observer.disconnect();
+        TeXForGmail.composeObservers.delete(composeArea);
+        TeXForGmail.log('Observer disconnected - toggle is OFF');
+      }
+      
+      if (hasRenderedLatex) {
+        preserveCursorPosition(composeArea, () => {
           const restored = restoreLatexSource(composeArea);
           if (restored) {
             showToast('LaTeX source restored');
-          } else {
-            showToast('No rendered LaTeX to restore');
           }
-        }
-      });
-    } else {
-      // No LaTeX content, just toggle the state and observer
-      if (newState) {
-        setupAutoRenderObserver(composeArea);
-        showToast('LaTeX rendering ON');
+        });
       } else {
-        const observer = TeXForGmail.composeObservers.get(composeArea);
-        if (observer) {
-          observer.disconnect();
-          TeXForGmail.composeObservers.delete(composeArea);
-        }
         showToast('LaTeX rendering OFF');
       }
     }
