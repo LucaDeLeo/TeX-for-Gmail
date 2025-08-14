@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Story 3.1 Test Suite - Multi-Mode Math Rendering</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    body {
+      font-family: 'Google Sans', Roboto, Arial, sans-serif;
+      max-width: 900px;
+      margin: 20px auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    .test-section {
+      background: white;
+      padding: 20px;
+      margin: 20px 0;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .test-case {
+      margin: 15px 0;
+      padding: 15px;
+      border-left: 3px solid #4285f4;
+      background: #f8f9fa;
+    }
+    .test-description {
+      color: #666;
+      font-size: 0.9em;
+      margin-bottom: 10px;
+    }
+    .compose-area {
+      padding: 15px;
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+      background: white;
+      min-height: 100px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .control-panel {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: white;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      z-index: 1000;
+    }
+    .control-panel button {
+      display: block;
+      width: 100%;
+      margin: 5px 0;
+      padding: 8px;
+      background: #4285f4;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .control-panel button:hover {
+      background: #3367d6;
+    }
+    .status {
+      padding: 10px;
+      margin: 10px 0;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+    }
+    .status.success {
+      background: #e8f5e9;
+      color: #2e7d32;
+    }
+    .status.error {
+      background: #ffebee;
+      color: #c62828;
+    }
+    .status.info {
+      background: #e3f2fd;
+      color: #1565c0;
+    }
+  </style>
+</head>
+<body>
+  <div class="control-panel">
+    <h3>Test Controls</h3>
+    <button onclick="toggleSimpleMode()">Toggle Simple Mode</button>
+    <button onclick="toggleNaiveMode()">Toggle Naive TeX Mode</button>
+    <button onclick="switchServer()">Switch Server</button>
+    <button onclick="simulateOffline()">Simulate Offline</button>
+    <button onclick="resetAll()">Reset All</button>
+    <div id="status-display" class="status info">
+      Mode: Rich<br>
+      Server: CodeCogs<br>
+      Naive TeX: OFF
+    </div>
+  </div>
+
+  <h1>Story 3.1 Test Suite - Multi-Mode Math Rendering</h1>
+
+  <!-- Test Section 1: DPI Quality Tests -->
+  <div class="test-section">
+    <h2>Test 1: DPI Quality (200 DPI inline, 300 DPI display)</h2>
+    
+    <div class="test-case">
+      <div class="test-description">Inline math at 200 DPI - should be crisp and clear</div>
+      <div class="compose-area" contenteditable="true">
+        The Pythagorean theorem states that $a^2 + b^2 = c^2$ for right triangles.
+        Einstein's famous equation is $E = mc^2$ which relates energy and mass.
+      </div>
+    </div>
+    
+    <div class="test-case">
+      <div class="test-description">Display math at 300 DPI - should be large and crystal clear</div>
+      <div class="compose-area" contenteditable="true">
+        The integral of a function:
+        $$\int_0^1 f(x)dx = F(1) - F(0)$$
+        
+        The quadratic formula:
+        $$x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}$$
+      </div>
+    </div>
+  </div>
+
+  <!-- Test Section 2: Inline vs Display Mode -->
+  <div class="test-section">
+    <h2>Test 2: Inline vs Display Mode Distinction</h2>
+    
+    <div class="test-case">
+      <div class="test-description">Mixed inline and display - inline should flow with text, display should be centered</div>
+      <div class="compose-area" contenteditable="true">
+        In mathematics, we often work with sequences like $a_n = n^2$ which grow quadratically.
+        
+        The sum of the first n natural numbers is given by:
+        $$\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$$
+        
+        This formula was discovered by Gauss when he noticed that $1 + n = n+1$, $2 + (n-1) = n+1$, etc.
+      </div>
+    </div>
+  </div>
+
+  <!-- Test Section 3: Baseline Alignment -->
+  <div class="test-section">
+    <h2>Test 3: Baseline Alignment</h2>
+    
+    <div class="test-case">
+      <div class="test-description">Inline equations should align with text baseline</div>
+      <div class="compose-area" contenteditable="true">
+        Text with subscript $x_1, x_2, x_3$ and superscript $y^1, y^2, y^3$ should align properly.
+        Greek letters like $\alpha$, $\beta$, and $\gamma$ should sit on the baseline.
+        Fractions like $\frac{1}{2}$ should be vertically centered with the text line.
+      </div>
+    </div>
+  </div>
+
+  <!-- Test Section 4: Simple Math Mode -->
+  <div class="test-section">
+    <h2>Test 4: Simple Math Mode (Offline HTML Rendering)</h2>
+    <p>Enable Simple Mode using the control panel to test offline rendering</p>
+    
+    <div class="test-case">
+      <div class="test-description">Common symbols and Greek letters</div>
+      <div class="compose-area" contenteditable="true">
+        Greek letters: $\alpha \beta \gamma \delta \epsilon \theta \lambda \mu \pi \sigma \omega$
+        
+        Math symbols: $\sum \int \prod \sqrt{x} \infty \partial \nabla$
+        
+        Relations: $x \leq y$, $a \geq b$, $p \neq q$, $m \approx n$
+      </div>
+    </div>
+    
+    <div class="test-case">
+      <div class="test-description">Superscripts and subscripts</div>
+      <div class="compose-area" contenteditable="true">
+        Simple powers: $x^2$, $y^3$, $z^{10}$
+        
+        Subscripts: $a_1$, $b_2$, $c_{n+1}$
+        
+        Combined: $x_i^2$, $a_{n}^{k}$
+      </div>
+    </div>
+  </div>
+
+  <!-- Test Section 5: Naive TeX Mode -->
+  <div class="test-section">
+    <h2>Test 5: Naive TeX Detection</h2>
+    <p>Enable Naive TeX Mode to auto-detect informal math notation</p>
+    
+    <div class="test-case">
+      <div class="test-description">Should detect informal math notation without delimiters</div>
+      <div class="compose-area" contenteditable="true">
+        The function grows as x^2 for large values.
+        The sequence a_n converges to zero.
+        Euler's identity: e^(i*pi) + 1 = 0
+        
+        But it should not affect currency: $100, $5.99, or $1,234.56
+      </div>
+    </div>
+  </div>
+
+  <!-- Test Section 6: Server Fallback -->
+  <div class="test-section">
+    <h2>Test 6: Server Fallback and Health Monitoring</h2>
+    
+    <div class="test-case">
+      <div class="test-description">Test server switching (use control panel to simulate failures)</div>
+      <div class="compose-area" contenteditable="true">
+        Primary server test: $f(x) = x^2 + 2x + 1$
+        
+        Display mode server test:
+        $$\lim_{x \to \infty} \frac{1}{x} = 0$$
+      </div>
+    </div>
+  </div>
+
+  <!-- Test Section 7: Backward Compatibility -->
+  <div class="test-section">
+    <h2>Test 7: Backward Compatibility</h2>
+    
+    <div class="test-case">
+      <div class="test-description">All Story 1.1-2.2 features should still work</div>
+      <div class="compose-area" contenteditable="true">
+        Toggle test: $x^2 + y^2 = z^2$
+        
+        Complex LaTeX: $$\begin{bmatrix} a & b \\ c & d \end{bmatrix}$$
+        
+        Currency should be ignored: $50.00 + $25.99 = $75.99
+      </div>
+    </div>
+  </div>
+
+  <script src="content.js"></script>
+  <script>
+    // Test control functions
+    function toggleSimpleMode() {
+      if (typeof TeXForGmail !== 'undefined') {
+        TeXForGmail.simpleMode = !TeXForGmail.simpleMode;
+        updateStatus();
+        console.log('Simple Mode:', TeXForGmail.simpleMode);
+      }
+    }
+    
+    function toggleNaiveMode() {
+      if (typeof TeXForGmail !== 'undefined') {
+        TeXForGmail.naiveTexMode = !TeXForGmail.naiveTexMode;
+        updateStatus();
+        console.log('Naive TeX Mode:', TeXForGmail.naiveTexMode);
+      }
+    }
+    
+    function switchServer() {
+      if (typeof TeXForGmail !== 'undefined') {
+        TeXForGmail.serverPreference = TeXForGmail.serverPreference === 'codecogs' ? 'wordpress' : 'codecogs';
+        sessionStorage.setItem('tex-gmail-server-preference', TeXForGmail.serverPreference);
+        updateStatus();
+        console.log('Server switched to:', TeXForGmail.serverPreference);
+      }
+    }
+    
+    function simulateOffline() {
+      if (typeof TeXForGmail !== 'undefined') {
+        // Simulate server failures
+        if (typeof ServerHealth !== 'undefined') {
+          ServerHealth.codecogs.failures = 5;
+          ServerHealth.wordpress.failures = 5;
+          console.log('Simulated offline mode - both servers marked as failed');
+        }
+        TeXForGmail.simpleMode = true;
+        updateStatus();
+      }
+    }
+    
+    function resetAll() {
+      if (typeof TeXForGmail !== 'undefined') {
+        TeXForGmail.simpleMode = false;
+        TeXForGmail.naiveTexMode = false;
+        TeXForGmail.serverPreference = 'codecogs';
+        if (typeof ServerHealth !== 'undefined') {
+          ServerHealth.codecogs.failures = 0;
+          ServerHealth.wordpress.failures = 0;
+        }
+        sessionStorage.removeItem('tex-gmail-server-preference');
+        updateStatus();
+        console.log('All settings reset');
+      }
+    }
+    
+    function updateStatus() {
+      const statusDiv = document.getElementById('status-display');
+      if (typeof TeXForGmail !== 'undefined') {
+        const mode = TeXForGmail.simpleMode ? 'Simple' : 'Rich';
+        const server = TeXForGmail.serverPreference === 'codecogs' ? 'CodeCogs' : 'WordPress';
+        const naive = TeXForGmail.naiveTexMode ? 'ON' : 'OFF';
+        statusDiv.innerHTML = `Mode: ${mode}<br>Server: ${server}<br>Naive TeX: ${naive}`;
+      }
+    }
+    
+    // Initialize on load
+    window.addEventListener('load', () => {
+      updateStatus();
+      console.log('Story 3.1 Test Suite loaded');
+      console.log('Extension state:', {
+        simpleMode: TeXForGmail?.simpleMode,
+        naiveTexMode: TeXForGmail?.naiveTexMode,
+        serverPreference: TeXForGmail?.serverPreference
+      });
+    });
+  </script>
+</body>
+</html>

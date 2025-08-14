@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Critical Fixes Test Suite - TeX for Gmail</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    body {
+      font-family: 'Google Sans', Roboto, Arial, sans-serif;
+      max-width: 1200px;
+      margin: 20px auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    .test-section {
+      background: white;
+      padding: 20px;
+      margin: 20px 0;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h2 {
+      color: #1a73e8;
+      border-bottom: 2px solid #e8f0fe;
+      padding-bottom: 10px;
+    }
+    .compose-area {
+      padding: 15px;
+      border: 2px solid #dadce0;
+      border-radius: 4px;
+      background: white;
+      min-height: 100px;
+      font-size: 14px;
+      line-height: 1.8;
+      margin: 10px 0;
+    }
+    .control-panel {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 1000;
+      max-width: 250px;
+    }
+    .control-panel button {
+      display: block;
+      width: 100%;
+      margin: 8px 0;
+      padding: 10px;
+      background: #1a73e8;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.2s;
+    }
+    .control-panel button:hover {
+      background: #1557b0;
+    }
+    .control-panel button.danger {
+      background: #ea4335;
+    }
+    .control-panel button.danger:hover {
+      background: #c5221f;
+    }
+    .status {
+      padding: 12px;
+      margin: 10px 0;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .status.success {
+      background: #e6f4ea;
+      color: #1e8e3e;
+      border: 1px solid #34a853;
+    }
+    .status.error {
+      background: #fce8e6;
+      color: #c5221f;
+      border: 1px solid #ea4335;
+    }
+    .status.info {
+      background: #e8f0fe;
+      color: #1967d2;
+      border: 1px solid #1a73e8;
+    }
+    .test-case {
+      margin: 15px 0;
+      padding: 15px;
+      border-left: 4px solid #1a73e8;
+      background: #f8f9fa;
+      border-radius: 0 4px 4px 0;
+    }
+    .test-description {
+      color: #5f6368;
+      font-size: 13px;
+      margin-bottom: 10px;
+      font-style: italic;
+    }
+    code {
+      background: #f1f3f4;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 13px;
+    }
+    .highlight {
+      background: #fef7e0;
+      padding: 2px 4px;
+      border-radius: 3px;
+    }
+  </style>
+</head>
+<body>
+  <div class="control-panel">
+    <h3>🧪 Test Controls</h3>
+    <button onclick="runAllTests()">▶️ Run All Tests</button>
+    <button onclick="testXSSProtection()">🔒 Test XSS Protection</button>
+    <button onclick="testServerFailover()">🔄 Test Server Failover</button>
+    <button onclick="testMutexProtection()">🚦 Test Mutex</button>
+    <button onclick="toggleSimpleMode()">📝 Toggle Simple Mode</button>
+    <button onclick="toggleNaiveMode()">🔍 Toggle Naive Mode</button>
+    <button class="danger" onclick="simulateServerFailure()">💥 Kill Current Server</button>
+    <button onclick="resetAll()">🔄 Reset Everything</button>
+    <div id="status-display" class="status info">
+      <strong>System Status:</strong><br>
+      Mode: Rich Math<br>
+      Server: CodeCogs<br>
+      Naive TeX: OFF<br>
+      Failures: 0
+    </div>
+  </div>
+
+  <h1>🔧 Critical Fixes Test Suite</h1>
+  
+  <!-- Test Section 1: XSS Protection -->
+  <div class="test-section">
+    <h2>1. XSS Protection Tests</h2>
+    <div class="test-case">
+      <div class="test-description">Testing enhanced HTML escaping with potentially dangerous characters</div>
+      <div class="compose-area" contenteditable="true" data-test="xss-protection">
+        Test malicious input: $<script>alert('XSS')</script>$
+        Test backticks: $`console.log('test')`$
+        Test equals: $a=b$
+        Test parentheses: $(a+b)$
+        Test all special chars: ${}[]()=`'"<>&|*+?^.$
+      </div>
+    </div>
+  </div>
+
+  <!-- Test Section 2: Image Error Handling -->
+  <div class="test-section">
+    <h2>2. Image Loading Error Handling</h2>
+    <div class="test-case">
+      <div class="test-description">Testing image error handlers and fallback mechanisms</div>
+      <div class="compose-area" contenteditable="true" data-test="error-handling">
+        Valid equation: $E = mc^2$
+        Complex equation: $$\int_{-\infty}^{\infty} e^{-x^2} dx = \sqrt{\pi}$$
+        Invalid server test (will be tested with server failure simulation)
+      </div>
+    </div>
+  </div>
+
+  <!-- Test Section 3: Server Switching Mutex -->
+  <div class="test-section">
+    <h2>3. Mutex-Protected Server Switching</h2>
+    <div class="test-case">
+      <div class="test-description">Testing race condition prevention in server switching</div>
+      <div class="compose-area" contenteditable="true" data-test="mutex">
+        Test equation 1: $\alpha + \beta = \gamma$
+        Test equation 2: $$\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$$
+        Test equation 3: $f(x) = x^2 + 2x + 1$
+      </div>
+      <button onclick="triggerRapidSwitching()">Trigger Rapid Server Switches</button>
+    </div>
+  </div>
+
+  <!-- Test Section 4: Multi-Mode Rendering -->
+  <div class="test-section">
+    <h2>4. Multi-Mode Rendering Tests</h2>
+    <div class="test-case">
+      <div class="test-description">Testing all rendering modes (Rich, Simple, Naive)</div>
+      <div class="compose-area" contenteditable="true" data-test="multimode">
+        Rich Math: $\frac{d}{dx}(x^2) = 2x$ and $$\oint_C \vec{F} \cdot d\vec{r} = \iint_S (\nabla \times \vec{F}) \cdot d\vec{S}$$
+        Simple Math (offline): Greek letters α β γ Σ ∫
+        Naive TeX (no delimiters): x^2 + y^2 = r^2 and e^(iπ) + 1 = 0
+      </div>
+    </div>
+  </div>
+
+  <!-- Test Section 5: High DPI Rendering -->
+  <div class="test-section">
+    <h2>5. High DPI Quality Tests</h2>
+    <div class="test-case">
+      <div class="test-description">Testing 200 DPI inline and 300 DPI display rendering</div>
+      <div class="compose-area" contenteditable="true" data-test="dpi">
+        Inline high DPI test: The equation $a^2 + b^2 = c^2$ should be crisp.
+        Display high DPI test: 
+        $$\mathcal{L}[f(t)] = \int_0^{\infty} f(t)e^{-st} dt$$
+        Mixed: The formula $e^{i\theta} = \cos\theta + i\sin\theta$ flows inline while
+        $$\nabla^2 \phi = \frac{\partial^2 \phi}{\partial x^2} + \frac{\partial^2 \phi}{\partial y^2} + \frac{\partial^2 \phi}{\partial z^2}$$
+        appears as display math.
+      </div>
+    </div>
+  </div>
+
+  <!-- Test Section 6: Baseline Alignment -->
+  <div class="test-section">
+    <h2>6. Baseline Alignment Tests</h2>
+    <div class="test-case">
+      <div class="test-description">Testing vertical alignment of inline equations</div>
+      <div class="compose-area" contenteditable="true" data-test="alignment" style="font-size: 16px; line-height: 1.8;">
+        Regular text with inline math $x_1$ subscript and $x^2$ superscript should align.
+        Testing fractions $\frac{1}{2}$ and roots $\sqrt{x}$ in a sentence.
+        Large operators $\sum_{i=1}^{n}$ and integrals $\int_0^1$ inline.
+      </div>
+    </div>
+  </div>
+
+  <script src="content.js"></script>
+  <script>
+    // Test control functions
+    function updateStatus(message, type = 'info') {
+      const statusDisplay = document.getElementById('status-display');
+      statusDisplay.className = `status ${type}`;
+      statusDisplay.innerHTML = message;
+    }
+
+    function runAllTests() {
+      updateStatus('Running all tests...', 'info');
+      setTimeout(() => {
+        testXSSProtection();
+        setTimeout(() => testServerFailover(), 1000);
+        setTimeout(() => testMutexProtection(), 2000);
+        setTimeout(() => {
+          updateStatus('✅ All tests completed!', 'success');
+        }, 3000);
+      }, 100);
+    }
+
+    function testXSSProtection() {
+      updateStatus('Testing XSS Protection...', 'info');
+      const testArea = document.querySelector('[data-test="xss-protection"]');
+      
+      // Trigger rendering
+      detectAndRenderLatex(testArea);
+      
+      setTimeout(() => {
+        // Check if any script tags were executed
+        const hasScripts = testArea.querySelector('script');
+        if (!hasScripts) {
+          updateStatus('✅ XSS Protection: PASSED<br>No script injection detected', 'success');
+        } else {
+          updateStatus('❌ XSS Protection: FAILED<br>Script tags found!', 'error');
+        }
+      }, 500);
+    }
+
+    function testServerFailover() {
+      updateStatus('Testing Server Failover...', 'info');
+      
+      // Simulate CodeCogs failure
+      ServerHealth.codecogs.failures = 3;
+      
+      const testArea = document.querySelector('[data-test="error-handling"]');
+      detectAndRenderLatex(testArea);
+      
+      setTimeout(() => {
+        if (TeXForGmail.serverPreference === 'wordpress') {
+          updateStatus('✅ Server Failover: PASSED<br>Switched to WordPress', 'success');
+          // Reset for next test
+          ServerHealth.codecogs.failures = 0;
+          TeXForGmail.serverPreference = 'codecogs';
+        } else {
+          updateStatus('❌ Server Failover: FAILED<br>Did not switch servers', 'error');
+        }
+      }, 1000);
+    }
+
+    function testMutexProtection() {
+      updateStatus('Testing Mutex Protection...', 'info');
+      
+      let switchCount = 0;
+      const originalSwitch = switchServerSafely;
+      
+      // Override to count switches
+      window.switchServerSafely = function(server, reason) {
+        switchCount++;
+        return originalSwitch.call(this, server, reason);
+      };
+      
+      // Trigger multiple rapid switches
+      for (let i = 0; i < 5; i++) {
+        switchServerSafely('wordpress', 'Test ' + i);
+        switchServerSafely('codecogs', 'Test ' + i);
+      }
+      
+      setTimeout(() => {
+        window.switchServerSafely = originalSwitch;
+        if (switchCount <= 2) {
+          updateStatus(`✅ Mutex Protection: PASSED<br>Only ${switchCount} switches allowed`, 'success');
+        } else {
+          updateStatus(`❌ Mutex Protection: FAILED<br>${switchCount} switches occurred`, 'error');
+        }
+      }, 500);
+    }
+
+    function toggleSimpleMode() {
+      TeXForGmail.simpleMode = !TeXForGmail.simpleMode;
+      updateStatus(`Simple Mode: ${TeXForGmail.simpleMode ? 'ON' : 'OFF'}`, 'info');
+      // Re-render all compose areas
+      document.querySelectorAll('.compose-area').forEach(area => {
+        detectAndRenderLatex(area);
+      });
+    }
+
+    function toggleNaiveMode() {
+      TeXForGmail.naiveTexMode = !TeXForGmail.naiveTexMode;
+      updateStatus(`Naive TeX Mode: ${TeXForGmail.naiveTexMode ? 'ON' : 'OFF'}`, 'info');
+      // Re-render all compose areas
+      document.querySelectorAll('.compose-area').forEach(area => {
+        detectAndRenderLatex(area);
+      });
+    }
+
+    function simulateServerFailure() {
+      const currentServer = TeXForGmail.serverPreference;
+      ServerHealth[currentServer].failures = 3;
+      updateStatus(`💥 Killed ${currentServer} server<br>Failures: ${ServerHealth[currentServer].failures}`, 'error');
+    }
+
+    function triggerRapidSwitching() {
+      updateStatus('Triggering rapid switches...', 'info');
+      for (let i = 0; i < 10; i++) {
+        setTimeout(() => {
+          switchServerSafely(i % 2 === 0 ? 'wordpress' : 'codecogs', 'Rapid test ' + i);
+        }, i * 50);
+      }
+      setTimeout(() => {
+        updateStatus('Rapid switching test complete', 'success');
+      }, 600);
+    }
+
+    function resetAll() {
+      TeXForGmail.serverPreference = 'codecogs';
+      TeXForGmail.simpleMode = false;
+      TeXForGmail.naiveTexMode = false;
+      TeXForGmail.serverSwitchMutex = false;
+      ServerHealth.codecogs.failures = 0;
+      ServerHealth.wordpress.failures = 0;
+      sessionStorage.clear();
+      updateStatus('System reset to defaults', 'info');
+      location.reload();
+    }
+
+    // Initialize on load
+    window.addEventListener('load', () => {
+      // Initialize extension
+      TeXForGmail.init();
+      
+      // Set up automatic rendering for all compose areas
+      document.querySelectorAll('.compose-area').forEach(area => {
+        area.addEventListener('blur', () => {
+          detectAndRenderLatex(area);
+        });
+      });
+      
+      updateStatus('<strong>Ready for Testing!</strong><br>Mode: Rich Math<br>Server: CodeCogs<br>All systems operational', 'success');
+    });
+  </script>
+</body>
+</html>

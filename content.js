@@ -19,8 +19,8 @@
     renderDebounceDelay: 500, // For LaTeX rendering
     toastDuration: 3000,
     dpi: {
-      inline: 110,
-      display: 150
+      inline: 200,
+      display: 300
     },
     size: {
       inline: '\\normalsize',
@@ -44,9 +44,27 @@
     observerSetupFlags: new WeakMap(), // Prevent duplicate observer setup
     apiCallTimes: [], // Track API call timestamps for rate limiting
     debugMode: true, // Set to true for verbose logging (temporarily enabled for debugging)
+    simpleMode: false, // Simple Math mode flag
+    naiveTexMode: false, // Naive TeX detection mode flag
+    serverPreference: 'codecogs', // Current server preference
+    serverSwitchMutex: false, // Mutex to prevent concurrent server switches
+    serverSwitchTimestamp: 0, // Track last switch time
     init() {
       console.log('🚀 TeX for Gmail: Extension initializing...');
       this.log('Extension initialized');
+      
+      // Load server preference from sessionStorage
+      try {
+        const savedPreference = sessionStorage.getItem('tex-gmail-server-preference');
+        if (savedPreference && ['codecogs', 'wordpress'].includes(savedPreference)) {
+          this.serverPreference = savedPreference;
+          this.log('Loaded server preference:', savedPreference);
+        }
+      } catch (e) {
+        // Silently fail if sessionStorage is not available
+        this.log('Could not load server preference from sessionStorage');
+      }
+      
       this.setupObserver();
       // Check for existing compose windows immediately
       checkForComposeWindow();
@@ -394,8 +412,289 @@
     
     const encoded = encodeURIComponent(latex);
     const dpi = isDisplay ? CONFIG.dpi.display : CONFIG.dpi.inline;
-    const size = isDisplay ? CONFIG.size.display : CONFIG.size.inline;
-    return `https://latex.codecogs.com/png.image?\\dpi{${dpi}}${size}%20${encoded}`;
+    const displayPrefix = isDisplay ? '\\displaystyle' : '\\inline';
+    return `https://latex.codecogs.com/png.image?\\dpi{${dpi}}${displayPrefix}%20${encoded}`;
+  }
+
+  // WordPress Server as Fallback (Task 6)
+  function getWordPressUrl(latex) {
+    const encoded = encodeURIComponent(latex);
+    return `https://s0.wp.com/latex.php?latex=${encoded}&bg=ffffff&fg=000000&s=0`;
+  }
+
+  // Server Health Monitoring (Task 7)
+  const ServerHealth = {
+    codecogs: { failures: 0, lastCheck: 0 },
+    wordpress: { failures: 0, lastCheck: 0 },
+    resetThreshold: 300000, // 5 minutes
+    maxFailures: 3
+  };
+
+  function checkServerHealth(server) {
+    const now = Date.now();
+    const health = ServerHealth[server];
+    
+    // Reset counter if enough time passed
+    if (now - health.lastCheck > ServerHealth.resetThreshold) {
+      health.failures = 0;
+    }
+    health.lastCheck = now;
+    
+    return health.failures < ServerHealth.maxFailures;
+  }
+
+  // Safe server switching with mutex protection
+  function switchServerSafely(newServer, reason = '') {
+    // Check if switch is already in progress
+    if (TeXForGmail.serverSwitchMutex) {
+      TeXForGmail.log('Server switch already in progress, skipping');
+      return false;
+    }
+
+    // Prevent switching too frequently (within 5 seconds)
+    const now = Date.now();
+    if (now - TeXForGmail.serverSwitchTimestamp < 5000) {
+      TeXForGmail.log('Server switch attempted too soon, skipping');
+      return false;
+    }
+
+    // Acquire mutex
+    TeXForGmail.serverSwitchMutex = true;
+    TeXForGmail.serverSwitchTimestamp = now;
+
+    try {
+      // Only switch if actually changing
+      if (TeXForGmail.serverPreference === newServer) {
+        TeXForGmail.log('Server already set to', newServer);
+        return false;
+      }
+
+      // Perform the switch
+      TeXForGmail.serverPreference = newServer;
+      
+      // Persist to sessionStorage with error handling
+      try {
+        sessionStorage.setItem('tex-gmail-server-preference', newServer);
+      } catch (e) {
+        TeXForGmail.log('Could not save server preference to sessionStorage:', e);
+      }
+
+      TeXForGmail.log(`Server switched to ${newServer}${reason ? ': ' + reason : ''}`);
+      
+      // Show user notification
+      const message = newServer === 'wordpress' 
+        ? 'Switching to backup math server...' 
+        : 'Switching to primary math server...';
+      showToast(message, 'info');
+      
+      return true;
+    } finally {
+      // Always release mutex
+      setTimeout(() => {
+        TeXForGmail.serverSwitchMutex = false;
+      }, 100); // Small delay to prevent immediate re-entry
+    }
+  }
+
+  // Simple Math Mode Implementation (Task 4)
+  function sanitizeForHTML(text) {
+    const escapeMap = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#x27;',
+      '/': '&#x2F;',
+      '`': '&#x60;',
+      '=': '&#x3D;',
+      '(': '&#40;',
+      ')': '&#41;',
+      '[': '&#91;',
+      ']': '&#93;',
+      '{': '&#123;',
+      '}': '&#125;',
+      '\\': '&#92;',
+      '|': '&#124;',
+      '*': '&#42;',
+      '+': '&#43;',
+      '?': '&#63;',
+      '.': '&#46;',
+      '^': '&#94;',
+      '$': '&#36;'
+    };
+    return text.replace(/[&<>"'\/`=()[\]{}\\|*+?.^$]/g, char => escapeMap[char]);
+  }
+
+  function createSafeElement(tag, content, className) {
+    const element = document.createElement(tag);
+    if (className) element.className = className;
+    if (content) element.textContent = content;
+    return element;
+  }
+
+  function renderSimpleMath(latex, isDisplay) {
+    // Greek letter mapping
+    const greekLetters = {
+      '\\alpha': 'α', '\\beta': 'β', '\\gamma': 'γ', '\\delta': 'δ',
+      '\\epsilon': 'ε', '\\zeta': 'ζ', '\\eta': 'η', '\\theta': 'θ',
+      '\\iota': 'ι', '\\kappa': 'κ', '\\lambda': 'λ', '\\mu': 'μ',
+      '\\nu': 'ν', '\\xi': 'ξ', '\\pi': 'π', '\\rho': 'ρ',
+      '\\sigma': 'σ', '\\tau': 'τ', '\\upsilon': 'υ', '\\phi': 'φ',
+      '\\chi': 'χ', '\\psi': 'ψ', '\\omega': 'ω',
+      '\\Alpha': 'Α', '\\Beta': 'Β', '\\Gamma': 'Γ', '\\Delta': 'Δ',
+      '\\Epsilon': 'Ε', '\\Zeta': 'Ζ', '\\Eta': 'Η', '\\Theta': 'Θ',
+      '\\Iota': 'Ι', '\\Kappa': 'Κ', '\\Lambda': 'Λ', '\\Mu': 'Μ',
+      '\\Nu': 'Ν', '\\Xi': 'Ξ', '\\Pi': 'Π', '\\Rho': 'Ρ',
+      '\\Sigma': 'Σ', '\\Tau': 'Τ', '\\Upsilon': 'Υ', '\\Phi': 'Φ',
+      '\\Chi': 'Χ', '\\Psi': 'Ψ', '\\Omega': 'Ω',
+      '\\sum': '∑', '\\int': '∫', '\\prod': '∏', '\\sqrt': '√',
+      '\\infty': '∞', '\\partial': '∂', '\\nabla': '∇', '\\pm': '±',
+      '\\times': '×', '\\div': '÷', '\\cdot': '·', '\\leq': '≤',
+      '\\geq': '≥', '\\neq': '≠', '\\approx': '≈', '\\equiv': '≡',
+      '\\in': '∈', '\\notin': '∉', '\\subset': '⊂', '\\supset': '⊃',
+      '\\cup': '∪', '\\cap': '∩', '\\emptyset': '∅', '\\forall': '∀',
+      '\\exists': '∃', '\\rightarrow': '→', '\\leftarrow': '←',
+      '\\Rightarrow': '⇒', '\\Leftarrow': '⇐', '\\leftrightarrow': '↔'
+    };
+
+    try {
+      // Create wrapper span
+      const wrapper = document.createElement('span');
+      wrapper.className = isDisplay ? 'tex-math-display' : 'tex-math-inline';
+      wrapper.setAttribute('data-latex', latex);
+      wrapper.setAttribute('data-display', isDisplay);
+      wrapper.setAttribute('data-render-mode', 'simple');
+      
+      // Process the latex string
+      let processedLatex = latex;
+      
+      // Replace Greek letters and symbols
+      for (const [tex, symbol] of Object.entries(greekLetters)) {
+        const regex = new RegExp(tex.replace(/\\/g, '\\\\'), 'g');
+        processedLatex = processedLatex.replace(regex, symbol);
+      }
+      
+      // Parse and create DOM structure
+      const container = document.createElement('span');
+      container.style.fontFamily = 'serif';
+      container.style.fontSize = isDisplay ? '1.2em' : '1em';
+      
+      // Process superscripts and subscripts
+      const parts = [];
+      let currentText = '';
+      let i = 0;
+      
+      while (i < processedLatex.length) {
+        const char = processedLatex[i];
+        
+        if (char === '^') {
+          // Handle superscript
+          if (currentText) {
+            parts.push({ type: 'text', content: currentText });
+            currentText = '';
+          }
+          i++;
+          let supContent = '';
+          if (processedLatex[i] === '{') {
+            // Find matching closing brace
+            i++;
+            let braceCount = 1;
+            while (i < processedLatex.length && braceCount > 0) {
+              if (processedLatex[i] === '{') braceCount++;
+              else if (processedLatex[i] === '}') braceCount--;
+              if (braceCount > 0) supContent += processedLatex[i];
+              i++;
+            }
+          } else {
+            // Single character superscript
+            supContent = processedLatex[i];
+            i++;
+          }
+          parts.push({ type: 'sup', content: supContent });
+        } else if (char === '_') {
+          // Handle subscript
+          if (currentText) {
+            parts.push({ type: 'text', content: currentText });
+            currentText = '';
+          }
+          i++;
+          let subContent = '';
+          if (processedLatex[i] === '{') {
+            // Find matching closing brace
+            i++;
+            let braceCount = 1;
+            while (i < processedLatex.length && braceCount > 0) {
+              if (processedLatex[i] === '{') braceCount++;
+              else if (processedLatex[i] === '}') braceCount--;
+              if (braceCount > 0) subContent += processedLatex[i];
+              i++;
+            }
+          } else {
+            // Single character subscript
+            subContent = processedLatex[i];
+            i++;
+          }
+          parts.push({ type: 'sub', content: subContent });
+        } else {
+          currentText += char;
+          i++;
+        }
+      }
+      
+      if (currentText) {
+        parts.push({ type: 'text', content: currentText });
+      }
+      
+      // Build DOM from parts
+      parts.forEach(part => {
+        if (part.type === 'text') {
+          const textNode = document.createTextNode(part.content);
+          container.appendChild(textNode);
+        } else if (part.type === 'sup') {
+          const sup = createSafeElement('sup', part.content);
+          container.appendChild(sup);
+        } else if (part.type === 'sub') {
+          const sub = createSafeElement('sub', part.content);
+          container.appendChild(sub);
+        }
+      });
+      
+      wrapper.appendChild(container);
+      return wrapper;
+      
+    } catch (error) {
+      TeXForGmail.log('Error in renderSimpleMath:', error);
+      return null;
+    }
+  }
+
+  // Naive TeX Detection and Rendering (Task 5)
+  function detectNaiveTeX(text) {
+    // Patterns for naive TeX detection
+    const patterns = [
+      /\b([a-zA-Z])\^(\{[^}]+\}|\w+)/g,  // x^2 or x^{10}
+      /\b([a-zA-Z])_(\{[^}]+\}|\w+)/g,   // a_n or a_{10}
+      /\be\^\(([^)]+)\)/g,                // e^(i*pi)
+      /\\(alpha|beta|gamma|delta|epsilon|theta|lambda|mu|pi|sigma|omega)/gi
+    ];
+    
+    // Check if text contains potential naive TeX (avoid false positives with currency)
+    const currencyPattern = /\$[\d,]+\.?\d*/g;
+    const hasCurrency = currencyPattern.test(text);
+    
+    if (hasCurrency) {
+      // Skip if text primarily contains currency
+      return null;
+    }
+    
+    // Check if any pattern matches
+    for (const pattern of patterns) {
+      if (pattern.test(text)) {
+        return text;  // Return the text for processing
+      }
+    }
+    
+    return null;
   }
 
   // Task 3: Rendering Pipeline - Text node traversal with double-render prevention
@@ -505,6 +804,16 @@
     // Error handling for image loading with improved user feedback
     img.onerror = function() {
       TeXForGmail.log('Error: Failed to load LaTeX image', latex);
+      
+      // Track server failure
+      if (img.src.includes('codecogs.com')) {
+        ServerHealth.codecogs.failures++;
+        TeXForGmail.log('CodeCogs server failure count:', ServerHealth.codecogs.failures);
+      } else if (img.src.includes('wp.com')) {
+        ServerHealth.wordpress.failures++;
+        TeXForGmail.log('WordPress server failure count:', ServerHealth.wordpress.failures);
+      }
+      
       // Replace with original text on error
       const sourceText = isDisplay ? `$$${latex}$$` : `$${latex}$`;
       wrapper.textContent = sourceText;
@@ -517,6 +826,15 @@
         }
       } catch (e) {
         // Silently fail if localStorage is not available
+      }
+    };
+    
+    // Track successful loads to reset failure counts
+    img.onload = function() {
+      if (img.src.includes('codecogs.com')) {
+        ServerHealth.codecogs.failures = 0;
+      } else if (img.src.includes('wp.com')) {
+        ServerHealth.wordpress.failures = 0;
       }
     };
     
@@ -863,6 +1181,34 @@
           }
         }
         
+        // Check for naive TeX patterns if enabled and no formal LaTeX found
+        if (TeXForGmail.naiveTexMode && matches.length === 0) {
+          const naiveText = detectNaiveTeX(text);
+          if (naiveText) {
+            // Process naive TeX patterns
+            const naivePatterns = [
+              /\b([a-zA-Z])\^(\{[^}]+\}|\w+)/g,  // x^2 or x^{10}
+              /\b([a-zA-Z])_(\{[^}]+\}|\w+)/g,   // a_n or a_{10}
+              /\be\^\(([^)]+)\)/g,                // e^(i*pi)
+            ];
+            
+            for (const pattern of naivePatterns) {
+              pattern.lastIndex = 0;
+              while ((match = pattern.exec(text)) !== null) {
+                const naiveLatex = match[0];
+                matches.push({
+                  type: 'inline',
+                  start: match.index,
+                  end: match.index + match[0].length,
+                  latex: naiveLatex,
+                  full: naiveLatex,
+                  isNaive: true
+                });
+              }
+            }
+          }
+        }
+        
         // Sort matches by position
         matches.sort((a, b) => a.start - b.start);
         
@@ -877,13 +1223,56 @@
               newNodes.push(document.createTextNode(text.substring(lastIndex, match.start)));
             }
             
-            // Create and add math element
-            const imgUrl = getCodeCogsUrl(match.latex, match.type === 'display');
-            if (imgUrl) {
-              const mathElement = createMathWrapper(match.latex, match.type === 'display', imgUrl);
+            // Create and add math element based on mode
+            let mathElement = null;
+            
+            // Check if this is a naive TeX match or we should use Simple Math mode
+            if (match.isNaive || TeXForGmail.simpleMode) {
+              mathElement = renderSimpleMath(match.latex, match.type === 'display');
+            } else {
+              // Use image-based rendering with server selection
+              let imgUrl = null;
+              
+              // Try primary server
+              if (TeXForGmail.serverPreference === 'codecogs' && checkServerHealth('codecogs')) {
+                imgUrl = getCodeCogsUrl(match.latex, match.type === 'display');
+              } else if (TeXForGmail.serverPreference === 'wordpress' && checkServerHealth('wordpress')) {
+                imgUrl = getWordPressUrl(match.latex);
+              }
+              
+              // Fallback logic if primary server fails
+              if (!imgUrl) {
+                if (TeXForGmail.serverPreference === 'codecogs' && checkServerHealth('wordpress')) {
+                  // Fallback to WordPress
+                  if (switchServerSafely('wordpress', 'CodeCogs server failed')) {
+                    imgUrl = getWordPressUrl(match.latex);
+                  }
+                } else if (TeXForGmail.serverPreference === 'wordpress' && checkServerHealth('codecogs')) {
+                  // Fallback to CodeCogs
+                  if (switchServerSafely('codecogs', 'WordPress server recovered')) {
+                    imgUrl = getCodeCogsUrl(match.latex, match.type === 'display');
+                  }
+                }
+                
+                // If still no URL, both servers failed or switching was blocked
+                if (!imgUrl) {
+                  // Use Simple Math mode as last resort
+                  mathElement = renderSimpleMath(match.latex, match.type === 'display');
+                  if (mathElement) {
+                    showToast('Using offline math rendering', 'info');
+                  }
+                }
+              }
+              
+              if (imgUrl && !mathElement) {
+                mathElement = createMathWrapper(match.latex, match.type === 'display', imgUrl);
+              }
+            }
+            
+            if (mathElement) {
               newNodes.push(mathElement);
             } else {
-              // Keep original text if validation fails
+              // Keep original text if all rendering methods fail
               newNodes.push(document.createTextNode(match.full));
             }
             
@@ -1772,6 +2161,34 @@
     document.addEventListener('DOMContentLoaded', () => TeXForGmail.init());
   } else {
     TeXForGmail.init();
+  }
+
+  // Expose functions for testing when running in test environment
+  // This is only for test pages, not for production use
+  if (window.location.pathname.includes('test') || window.location.pathname.includes('Test')) {
+    console.log('TeX for Gmail: Test mode detected, exposing functions globally');
+    
+    // Expose main objects and functions for testing
+    window.TeXForGmail = TeXForGmail;
+    window.ServerHealth = ServerHealth;
+    window.detectAndRenderLatex = detectAndRenderLatex;
+    window.switchServerSafely = switchServerSafely;
+    window.createMathWrapper = createMathWrapper;
+    window.renderSimpleMath = renderSimpleMath;
+    window.detectNaiveTeX = detectNaiveTeX;
+    window.sanitizeForHTML = sanitizeForHTML;
+    window.showToast = showToast;
+    
+    // Expose configuration for testing
+    window.CONFIG = CONFIG;
+    
+    console.log('TeX for Gmail: Test functions exposed:', {
+      TeXForGmail: !!window.TeXForGmail,
+      ServerHealth: !!window.ServerHealth,
+      detectAndRenderLatex: !!window.detectAndRenderLatex,
+      switchServerSafely: !!window.switchServerSafely,
+      createMathWrapper: !!window.createMathWrapper
+    });
   }
 
 })();
