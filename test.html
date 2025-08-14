@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TeX for Gmail - Test Page</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        
+        .gmail-compose {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .M9 {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .aZ {
+            background: #f8f9fa;
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+            margin-bottom: 10px;
+        }
+        
+        .J-J5-Ji {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        [g_editable="true"] {
+            min-height: 200px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: white;
+            outline: none;
+        }
+        
+        [g_editable="true"]:focus {
+            border-color: #4285f4;
+            box-shadow: 0 0 0 2px rgba(66,133,244,0.1);
+        }
+        
+        .send-button {
+            background: #1a73e8;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-weight: 500;
+            margin-top: 10px;
+        }
+        
+        .send-button:hover {
+            background: #1557b0;
+        }
+        
+        .test-section {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 2px solid #e0e0e0;
+        }
+        
+        .test-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #333;
+        }
+        
+        .test-description {
+            color: #666;
+            margin-bottom: 15px;
+        }
+        
+        .status {
+            padding: 8px 12px;
+            border-radius: 4px;
+            margin-top: 10px;
+            font-size: 14px;
+        }
+        
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+    </style>
+</head>
+<body>
+    <h1>TeX for Gmail - Test Suite</h1>
+    
+    <div class="test-section">
+        <div class="test-title">Test 1: Basic Toggle Without LaTeX</div>
+        <div class="test-description">Test that toggling the button with regular text doesn't delete content</div>
+        <div class="M9">
+            <div class="aZ">
+                <div class="J-J5-Ji">
+                    <!-- TeX button will be inserted here -->
+                </div>
+            </div>
+            <div contenteditable="true" g_editable="true" role="textbox" aria-label="Message Body" id="test1">
+                This is regular text with $5 and $10 prices. Nothing should be deleted when toggling!
+            </div>
+            <button class="send-button" data-tooltip="Send ‪(Ctrl-Enter)‬">Send</button>
+        </div>
+        <div class="status info" id="status1">Ready for testing</div>
+    </div>
+
+    <div class="test-section">
+        <div class="test-title">Test 2: Inline LaTeX Rendering</div>
+        <div class="test-description">Test inline math rendering with $...$ notation</div>
+        <div class="M9">
+            <div class="aZ">
+                <div class="J-J5-Ji">
+                    <!-- TeX button will be inserted here -->
+                </div>
+            </div>
+            <div contenteditable="true" g_editable="true" role="textbox" aria-label="Message Body" id="test2">
+                The equation $E = mc^2$ is famous. Also, $\int_0^{\infty} e^{-x} dx = 1$ is a classic integral.
+            </div>
+            <button class="send-button" data-tooltip="Send ‪(Ctrl-Enter)‬">Send</button>
+        </div>
+        <div class="status info" id="status2">Ready for testing</div>
+    </div>
+
+    <div class="test-section">
+        <div class="test-title">Test 3: Display LaTeX Rendering</div>
+        <div class="test-description">Test display math rendering with $$...$$ notation</div>
+        <div class="M9">
+            <div class="aZ">
+                <div class="J-J5-Ji">
+                    <!-- TeX button will be inserted here -->
+                </div>
+            </div>
+            <div contenteditable="true" g_editable="true" role="textbox" aria-label="Message Body" id="test3">
+                Here's a display equation:
+                $$\sum_{n=1}^{\infty} \frac{1}{n^2} = \frac{\pi^2}{6}$$
+                And another one: $$\nabla \cdot \vec{E} = \frac{\rho}{\epsilon_0}$$
+            </div>
+            <button class="send-button" data-tooltip="Send ‪(Ctrl-Enter)‬">Send</button>
+        </div>
+        <div class="status info" id="status3">Ready for testing</div>
+    </div>
+
+    <div class="test-section">
+        <div class="test-title">Test 4: Currency Detection (False Positive Prevention)</div>
+        <div class="test-description">Test that currency amounts are not mistaken for LaTeX</div>
+        <div class="M9">
+            <div class="aZ">
+                <div class="J-J5-Ji">
+                    <!-- TeX button will be inserted here -->
+                </div>
+            </div>
+            <div contenteditable="true" g_editable="true" role="textbox" aria-label="Message Body" id="test4">
+                Prices: $100, $5.99, $1,000.00, $50/hour. Mixed: The cost is $25 and the formula is $x^2 + y^2 = z^2$.
+            </div>
+            <button class="send-button" data-tooltip="Send ‪(Ctrl-Enter)‬">Send</button>
+        </div>
+        <div class="status info" id="status4">Ready for testing</div>
+    </div>
+
+    <div class="test-section">
+        <div class="test-title">Test 5: Toggle OFF - Source Restoration</div>
+        <div class="test-description">Test that turning toggle OFF restores LaTeX source</div>
+        <div class="M9">
+            <div class="aZ">
+                <div class="J-J5-Ji">
+                    <!-- TeX button will be inserted here -->
+                </div>
+            </div>
+            <div contenteditable="true" g_editable="true" role="textbox" aria-label="Message Body" id="test5">
+                Start with rendered: $\vec{F} = m\vec{a}$ and $$\oint_C \vec{B} \cdot d\vec{l} = \mu_0 I_{enc}$$
+            </div>
+            <button class="send-button" data-tooltip="Send ‪(Ctrl-Enter)‬">Send</button>
+        </div>
+        <div class="status info" id="status5">Ready for testing</div>
+    </div>
+
+    <div class="test-section">
+        <div class="test-title">Test 6: Dynamic Content Addition</div>
+        <div class="test-description">Test that new LaTeX added while toggle is ON gets rendered automatically</div>
+        <div class="M9">
+            <div class="aZ">
+                <div class="J-J5-Ji">
+                    <!-- TeX button will be inserted here -->
+                </div>
+            </div>
+            <div contenteditable="true" g_editable="true" role="textbox" aria-label="Message Body" id="test6">
+                Initial text. Add more LaTeX here after turning toggle ON.
+            </div>
+            <button class="send-button" data-tooltip="Send ‪(Ctrl-Enter)‬">Send</button>
+        </div>
+        <div class="status info" id="status6">Ready for testing</div>
+    </div>
+
+    <!-- Load the extension scripts -->
+    <link rel="stylesheet" href="styles.css">
+    <script src="content.js"></script>
+    
+    <script>
+        // Test helper to update status
+        function updateStatus(testId, message, type = 'info') {
+            const statusEl = document.getElementById(`status${testId}`);
+            statusEl.textContent = message;
+            statusEl.className = `status ${type}`;
+        }
+        
+        // Monitor for TeX button additions
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                mutation.addedNodes.forEach((node) => {
+                    if (node.classList && node.classList.contains('tex-button')) {
+                        console.log('TeX button added to compose window');
+                    }
+                });
+            });
+        });
+        
+        // Start observing
+        observer.observe(document.body, { childList: true, subtree: true });
+        
+        console.log('Test page loaded - Extension should initialize automatically');
+    </script>
+</body>
+</html>
