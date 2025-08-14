@@ -303,7 +303,9 @@
       // Check if there's actual LaTeX source to render
       const hasLatexSource = /\$\$[^$\n]+\$\$/.test(currentTextContent) || 
                             (/(?<!\$)\$(?!\d)([^$\n]+?)\$(?!\d)/.test(currentTextContent) && 
-                             !isCurrency(currentTextContent));
+                             !isCurrency(currentTextContent)) ||
+                            /\\\[([^\\]*(?:\\.[^\\]*)*?)\\\]/.test(currentTextContent) ||
+                            /\\\(([^\\]*(?:\\.[^\\]*)*?)\\\)/.test(currentTextContent);
       
       if (hasLatexSource) {
         preserveCursorPosition(composeArea, () => {
@@ -357,11 +359,22 @@
   }
 
   // Task 1: LaTeX Pattern Detection - Compile once for performance
+  // Pattern Precedence (Story 3.2):
+  // 1. Display patterns ($$...$$ and \[...\]) are processed first
+  // 2. Inline patterns ($...$ and \(...\)) are processed second
+  // 3. Overlapping patterns: Display takes priority over inline
+  // 4. Escaped delimiters (\$, \(, \[) are handled as literal text
   const LATEX_PATTERNS = {
     // Display math: $$...$$ (must be on same line, no nested $$)
     display: /\$\$([^\$\n]+?)\$\$/g,
-    // Inline math: $...$ (must be on same line, no nested $, avoid currency)
-    inline: /(?<!\$)\$(?!\d)([^\$\n]+?)\$(?!\d)/g,
+    // Display math: \[...\] (bracket delimiters) - Story 3.2
+    displayBracket: /\\\[([^\\]*(?:\\.[^\\]*)*?)\\\]/g,
+    // Inline math: $...$ (must be on same line, no nested $)
+    // Removed the (?!\d) negative lookahead to allow math with numbers like $1 + 1 = 2$
+    // Currency filtering is handled by the isCurrency() function instead
+    inline: /(?<!\$)\$([^\$\n]+?)\$/g,
+    // Inline math: \(...\) (parenthesis delimiters) - Story 3.2
+    inlineParenthesis: /\\\(([^\\]*(?:\\.[^\\]*)*?)\\\)/g,
     // Pattern to detect escaped dollar signs
     escaped: /\\\$/g
   };
@@ -372,18 +385,32 @@
     if (latex.length >= CONFIG.maxLatexLength) {
       return false;
     }
+    
+    // Task 4 (Story 3.2): Check for trailing spaces
+    // Don't render formulas ending with space
+    if (latex.trim() !== latex) {
+      return false;
+    }
+    
     // Basic validation - no script tags or suspicious patterns
     const dangerous = /<script|javascript:|on\w+=/i;
     return !dangerous.test(latex);
   }
 
   // Currency patterns compiled once for performance
+  // Task 5 (Story 3.2): Enhanced currency pattern detection
   const CURRENCY_PATTERNS = [
     /\$\d+(?:[,.\d]*)?(?:\s+(?:and|to|-|\+|or)\s+\$\d+(?:[,.\d]*)?)?/,
     /\$\d+(?:[,.\d]*)?\/(?:hr|hour|day|week|month|year)/i,
-    /(?:USD|EUR|GBP)\s*\$?\d+/i,
+    /(?:USD|EUR|GBP|CAD|AUD|JPY|CNY|INR)\s*\$?\d+/i,
     /\$\d+\.\d{2}(?:\s|$)/, // Prices like $9.99
-    /\$\d{1,3}(?:,\d{3})+/ // Formatted amounts like $1,000
+    /\$\d{1,3}(?:,\d{3})+/, // Formatted amounts like $1,000
+    /\$\d+\.?\d*(?:\s*(?:billion|million|thousand|hundred|k|K|M|B))?/i, // $5M, $10k
+    /\$\d+(?:\.\d{1,2})?(?:\s*[-–]\s*\$?\d+(?:\.\d{1,2})?)?/, // Price ranges: $10-$20
+    /(?:€|£|¥|₹|¢)\d+/, // Other currency symbols
+    /\$\d+(?:\.\d{2})?\s*(?:each|per|\/)/i, // $5 each, $10 per
+    /\$\d+\s*x\s*\d+/, // $5 x 3 (quantity pricing)
+    /\$\d+(?:\.\d{2})?\s+(?:off|discount|savings?|rebate)/i // $10 off, $5 discount
   ];
   
   // Currency detection helper - Enhanced with more patterns
@@ -392,12 +419,138 @@
     if (!/\$\d/.test(text)) {
       return false;
     }
-    // Check against currency patterns
+    
+    // Task 5 (Story 3.2): Additional context checks
+    // Allow legitimate math like $1 + 1 = 2$ by checking for math operators
+    const hasMathOperators = /[\+\-\*\/\=\^_\\]/.test(text);
+    const hasOnlyPricePattern = /^\$\d+(?:\.\d{2})?$/.test(text.trim());
+    
+    // If it's just a price pattern without math operators, it's currency
+    if (hasOnlyPricePattern) {
+      return true;
+    }
+    
+    // If it has math operators, less likely to be currency
+    if (hasMathOperators) {
+      // But still check for obvious currency patterns
+      return CURRENCY_PATTERNS.slice(0, 6).some(pattern => pattern.test(text));
+    }
+    
+    // Check against all currency patterns
     return CURRENCY_PATTERNS.some(pattern => pattern.test(text));
+  }
+
+  // Task 2 (Story 3.2): Abbreviation expansion system
+  // Expands convenient abbreviations to full LaTeX commands
+  // Examples: \bR → \mathbb R, \cH → \mathcal H, \wA → \widetilde A
+  // Applied before sending to rendering servers
+  
+  // Pre-compiled regex patterns for performance
+  const ABBREVIATION_PATTERNS = [
+    { regex: /\\b([A-Za-z])/g, replacement: '\\mathbb $1' },      // Blackboard bold: \bR → \mathbb R
+    { regex: /\\bf([A-Za-z])/g, replacement: '\\mathbf $1' },     // Bold: \bfA → \mathbf A
+    { regex: /\\d([A-Za-z])/g, replacement: '\\mathbf $1' },      // Bold (alternative): \dA → \mathbf A
+    { regex: /\\c([A-Za-z])/g, replacement: '\\mathcal $1' },     // Calligraphic: \cA → \mathcal A
+    { regex: /\\f([A-Za-z])/g, replacement: '\\mathfrak $1' },    // Fraktur: \fA → \mathfrak A
+    { regex: /\\w([A-Za-z])/g, replacement: '\\widetilde $1' },   // Wide tilde: \wA → \widetilde A
+    { regex: /\\o([A-Za-z])/g, replacement: '\\overline $1' },    // Overline: \oA → \overline A
+    { regex: /\\u([A-Za-z])/g, replacement: '\\underline $1' }    // Underline: \uA → \underline A
+  ];
+  
+  function expandAbbreviations(latex) {
+    // Apply each pre-compiled abbreviation pattern
+    let expanded = latex;
+    for (const pattern of ABBREVIATION_PATTERNS) {
+      expanded = expanded.replace(pattern.regex, pattern.replacement);
+    }
+    
+    return expanded;
+  }
+
+  // Task 3 (Story 3.2): Theorem environment support
+  // Supports LaTeX theorem-like environments with optional color themes
+  // Syntax: \begin{environment}[color]...\end{environment}
+  // Environments: theorem, lemma, proposition, corollary, definition
+  // Colors: red, blue, green, gray, yellow (default)
+  function detectTheoremEnvironments(text) {
+    // Environment types that are supported
+    const ENVIRONMENTS = ['theorem', 'lemma', 'proposition', 'corollary', 'definition'];
+    
+    // Build regex pattern for all environments
+    const envPattern = ENVIRONMENTS.join('|');
+    const regex = new RegExp(
+      `\\\\begin\\{(${envPattern})\\}(?:\\[([^\\]]+)\\])?([\\s\\S]*?)\\\\end\\{\\1\\}`,
+      'g'
+    );
+    
+    // Check if text contains theorem environments
+    return regex.test(text);
+  }
+  
+  function createTheoremWrapper(envType, colorArg, content) {
+    // Validate content length to prevent DoS
+    if (!content || content.length > CONFIG.maxLatexLength) {
+      TeXForGmail.log('Theorem content too long or empty, skipping');
+      return null;
+    }
+    
+    // Define color mapping for theorem environments
+    const THEOREM_COLORS = {
+      red: '#ffe6e6',
+      blue: '#e6f3ff',
+      green: '#e6ffe6',
+      gray: '#f0f0f0',
+      yellow: '#fff9e6'  // default
+    };
+    
+    // Get color or use default
+    const color = THEOREM_COLORS[colorArg] || THEOREM_COLORS.yellow;
+    
+    // Map colors to appropriate border colors for better visual hierarchy
+    const BORDER_COLORS = {
+      '#ffe6e6': '#ff9999',  // red
+      '#e6f3ff': '#99ccff',  // blue
+      '#e6ffe6': '#99ff99',  // green
+      '#f0f0f0': '#999999',  // gray
+      '#fff9e6': '#f0b429'   // yellow
+    };
+    
+    // Capitalize environment type for display
+    const envTitle = envType.charAt(0).toUpperCase() + envType.slice(1);
+    
+    // Create HTML wrapper for theorem using safe DOM methods
+    const wrapper = document.createElement('div');
+    wrapper.className = 'tex-theorem-env';
+    wrapper.setAttribute('data-theorem-type', envType);
+    wrapper.style.cssText = `
+      background-color: ${color};
+      border-left: 4px solid ${BORDER_COLORS[color] || '#999'};
+      padding: 10px;
+      margin: 10px 0;
+      border-radius: 4px;
+    `;
+    
+    // Add title
+    const title = document.createElement('strong');
+    title.textContent = `${envTitle}: `;
+    title.style.cssText = 'display: block; margin-bottom: 5px;';
+    
+    // Add content (will be processed for LaTeX later)
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'tex-theorem-content';
+    contentDiv.textContent = content.trim();
+    
+    wrapper.appendChild(title);
+    wrapper.appendChild(contentDiv);
+    
+    return wrapper;
   }
 
   // Task 2: CodeCogs API Integration with validation and rate limiting
   function getCodeCogsUrl(latex, isDisplay) {
+    // Expand abbreviations before processing
+    latex = expandAbbreviations(latex);
+    
     // Validate LaTeX before sending to API
     if (!isValidLatex(latex)) {
       TeXForGmail.log('Invalid or dangerous LaTeX detected:', latex);
@@ -418,6 +571,8 @@
 
   // WordPress Server as Fallback (Task 6)
   function getWordPressUrl(latex) {
+    // Expand abbreviations before processing
+    latex = expandAbbreviations(latex);
     const encoded = encodeURIComponent(latex);
     return `https://s0.wp.com/latex.php?latex=${encoded}&bg=ffffff&fg=000000&s=0`;
   }
@@ -533,6 +688,9 @@
   }
 
   function renderSimpleMath(latex, isDisplay) {
+    // Expand abbreviations before processing
+    latex = expandAbbreviations(latex);
+    
     // Greek letter mapping
     const greekLetters = {
       '\\alpha': 'α', '\\beta': 'β', '\\gamma': 'γ', '\\delta': 'δ',
@@ -1128,7 +1286,7 @@
           return;
         }
         
-        const text = textNode.textContent;
+        let text = textNode.textContent;
         
         // Skip if it looks like currency
         if (isCurrency(text)) {
@@ -1139,14 +1297,70 @@
         if (text.match(/^\$+.*\$+$/) && textNode.parentNode?.querySelector('img[alt*="$"]')) {
           return;
         }
+        
+        // Task 7 (Story 3.2): Handle escaped dollar signs by masking them
+        // This preserves literal \$ while allowing other LaTeX patterns to work
+        const ESCAPED_DOLLAR_PLACEHOLDER = '__ESCAPED_DOLLAR_SIGN__';
+        const hasEscapedDollar = text.includes('\\$');
+        if (hasEscapedDollar) {
+          // Temporarily replace escaped dollar signs with placeholder
+          text = text.replace(/\\\$/g, ESCAPED_DOLLAR_PLACEHOLDER);
+        }
+
+        // Check for theorem environments first
+        if (detectTheoremEnvironments(text)) {
+          // Environment types that are supported
+          const ENVIRONMENTS = ['theorem', 'lemma', 'proposition', 'corollary', 'definition'];
+          const envPattern = ENVIRONMENTS.join('|');
+          const regex = new RegExp(
+            `\\\\begin\\{(${envPattern})\\}(?:\\[([^\\]]+)\\])?([\\s\\S]*?)\\\\end\\{\\1\\}`,
+            'g'
+          );
+          
+          let envMatch;
+          while ((envMatch = regex.exec(text)) !== null) {
+            const [fullMatch, envType, colorArg, content] = envMatch;
+            const theoremElement = createTheoremWrapper(envType, colorArg, content);
+            
+            // Skip if wrapper creation failed (e.g., content too long)
+            if (!theoremElement) {
+              continue;
+            }
+            
+            // Replace the text node with the theorem element
+            const parent = textNode.parentNode;
+            parent.insertBefore(theoremElement, textNode);
+            
+            // Process the content inside the theorem for LaTeX
+            const contentDiv = theoremElement.querySelector('.tex-theorem-content');
+            if (contentDiv) {
+              // Recursively process LaTeX in the theorem content
+              detectAndRenderLatex(contentDiv);
+            }
+            
+            // Mark as processed
+            parent.setAttribute('data-tex-processing-node', 'true');
+            hasChanges = true;
+          }
+          
+          // Remove the original text node if we processed theorem environments
+          if (hasChanges) {
+            textNode.remove();
+            return;
+          }
+        }
 
         // Process both display and inline math in a single pass
         const matches = [];
         let match;
         
-        // Find all display math matches
+        // Find all display math matches - $$ patterns
         LATEX_PATTERNS.display.lastIndex = 0;
         while ((match = LATEX_PATTERNS.display.exec(text)) !== null) {
+          // Skip if LaTeX has trailing/leading spaces
+          if (match[1].trim() !== match[1]) {
+            continue;
+          }
           matches.push({
             type: 'display',
             start: match.index,
@@ -1156,7 +1370,23 @@
           });
         }
         
-        // Find all inline math matches
+        // Find all display math matches - \[...\] patterns
+        LATEX_PATTERNS.displayBracket.lastIndex = 0;
+        while ((match = LATEX_PATTERNS.displayBracket.exec(text)) !== null) {
+          // Skip if LaTeX has trailing/leading spaces
+          if (match[1].trim() !== match[1]) {
+            continue;
+          }
+          matches.push({
+            type: 'display',
+            start: match.index,
+            end: match.index + match[0].length,
+            latex: match[1],
+            full: match[0]
+          });
+        }
+        
+        // Find all inline math matches - $ patterns
         LATEX_PATTERNS.inline.lastIndex = 0;
         while ((match = LATEX_PATTERNS.inline.exec(text)) !== null) {
           // Check if this overlaps with any display math
@@ -1171,6 +1401,43 @@
           }
           
           if (!overlaps) {
+            // Skip if LaTeX has trailing/leading spaces
+            if (match[1].trim() !== match[1]) {
+              continue;
+            }
+            // Skip if this individual match looks like currency (e.g., $50, $19.99)
+            // But allow math with operators (e.g., $1 + 1 = 2$)
+            if (isCurrency(match[0])) {
+              continue;
+            }
+            matches.push({
+              type: 'inline',
+              start: match.index,
+              end: match.index + match[0].length,
+              latex: match[1],
+              full: match[0]
+            });
+          }
+        }
+        
+        // Find all inline math matches - \(...\) patterns
+        LATEX_PATTERNS.inlineParenthesis.lastIndex = 0;
+        while ((match = LATEX_PATTERNS.inlineParenthesis.exec(text)) !== null) {
+          // Check if this overlaps with any existing math
+          let overlaps = false;
+          for (const existingMatch of matches) {
+            if (match.index >= existingMatch.start && 
+                match.index < existingMatch.end) {
+              overlaps = true;
+              break;
+            }
+          }
+          
+          if (!overlaps) {
+            // Skip if LaTeX has trailing/leading spaces
+            if (match[1].trim() !== match[1]) {
+              continue;
+            }
             matches.push({
               type: 'inline',
               start: match.index,
@@ -1217,10 +1484,20 @@
           const newNodes = [];
           let lastIndex = 0;
           
+          // Helper to restore escaped dollar signs
+          const restoreEscapedDollar = (str) => {
+            if (hasEscapedDollar) {
+              // In text content, \$ should be displayed as just $
+              return str.replace(new RegExp(ESCAPED_DOLLAR_PLACEHOLDER, 'g'), '$');
+            }
+            return str;
+          };
+          
           for (const match of matches) {
             // Add text before the match
             if (match.start > lastIndex) {
-              newNodes.push(document.createTextNode(text.substring(lastIndex, match.start)));
+              const textBefore = text.substring(lastIndex, match.start);
+              newNodes.push(document.createTextNode(restoreEscapedDollar(textBefore)));
             }
             
             // Create and add math element based on mode
@@ -1273,6 +1550,7 @@
               newNodes.push(mathElement);
             } else {
               // Keep original text if all rendering methods fail
+              // Note: match.full shouldn't have placeholders since it's from the original pattern
               newNodes.push(document.createTextNode(match.full));
             }
             
@@ -1281,7 +1559,8 @@
           
           // Add remaining text after last match
           if (lastIndex < text.length) {
-            newNodes.push(document.createTextNode(text.substring(lastIndex)));
+            const remainingText = text.substring(lastIndex);
+            newNodes.push(document.createTextNode(restoreEscapedDollar(remainingText)));
           }
           
           // Mark parent as being processed to prevent double processing
@@ -1298,6 +1577,14 @@
           parent.removeAttribute('data-tex-processing-node');
           
           hasChanges = true;
+        } else if (hasEscapedDollar) {
+          // No LaTeX patterns found, but we need to restore escaped dollar signs
+          // In text content, \$ should be displayed as just $
+          const restoredText = text.replace(new RegExp(ESCAPED_DOLLAR_PLACEHOLDER, 'g'), '$');
+          if (restoredText !== textNode.textContent) {
+            textNode.textContent = restoredText;
+            hasChanges = true;
+          }
         }
       });
 

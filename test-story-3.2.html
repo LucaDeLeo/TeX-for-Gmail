@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TeX for Gmail - Story 3.2 Test Cases</title>
+    <style>
+        body {
+            font-family: 'Google Sans', Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .header {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #1a73e8;
+            margin: 0 0 10px 0;
+        }
+        .version {
+            color: #666;
+            font-size: 14px;
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test-section h2 {
+            color: #333;
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+        }
+        .test-case {
+            margin-bottom: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-left: 4px solid #1a73e8;
+            border-radius: 4px;
+        }
+        .test-input {
+            margin-bottom: 10px;
+            padding: 10px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+        .test-output {
+            padding: 10px;
+            background: #e8f4f8;
+            border: 1px solid #b8dae8;
+            border-radius: 4px;
+            min-height: 50px;
+        }
+        .status {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        .status.pass {
+            background: #34a853;
+            color: white;
+        }
+        .status.fail {
+            background: #ea4335;
+            color: white;
+        }
+        .status.pending {
+            background: #fbbc04;
+            color: white;
+        }
+        .compose-area {
+            min-height: 100px;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            background: white;
+            margin-top: 10px;
+            outline: none;
+        }
+        .compose-area:focus {
+            border-color: #1a73e8;
+        }
+        .tex-button {
+            background: #1a73e8;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        .tex-button:hover {
+            background: #1557b0;
+        }
+        .controls {
+            margin-bottom: 15px;
+        }
+        .note {
+            background: #fff9e6;
+            border-left: 4px solid #fbbc04;
+            padding: 10px;
+            margin-top: 10px;
+            font-size: 14px;
+        }
+        .tex-theorem-env {
+            /* Styles will be added dynamically by the extension */
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>TeX for Gmail - Story 3.2 Test Suite</h1>
+        <div class="version">Extended LaTeX Patterns & Features</div>
+    </div>
+
+    <!-- Section 1: New Delimiter Patterns -->
+    <div class="test-section">
+        <h2>1. Parenthesis and Bracket Delimiters</h2>
+        
+        <div class="test-case">
+            <h3>Test 1.1: Inline Parenthesis Delimiters</h3>
+            <div class="test-input">
+                The quadratic formula is \(x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}\) for solving equations.
+            </div>
+            <div class="compose-area" contenteditable="true" data-test="1.1">
+                The quadratic formula is \(x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}\) for solving equations.
+            </div>
+            <div class="note">Should render as inline math</div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 1.2: Display Bracket Delimiters</h3>
+            <div class="test-input">
+                The integral is:
+                \[\int_0^1 f(x) dx = F(1) - F(0)\]
+            </div>
+            <div class="compose-area" contenteditable="true" data-test="1.2">
+                The integral is:
+                \[\int_0^1 f(x) dx = F(1) - F(0)\]
+            </div>
+            <div class="note">Should render as display math (centered)</div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 1.3: Mixed Delimiter Types</h3>
+            <div class="test-input">
+                We have $x^2$, \(y^3\), and also $$z^4$$ and \[w^5\] in one message.
+            </div>
+            <div class="compose-area" contenteditable="true" data-test="1.3">
+                We have $x^2$, \(y^3\), and also $$z^4$$ and \[w^5\] in one message.
+            </div>
+            <div class="note">All patterns should render correctly</div>
+        </div>
+    </div>
+
+    <!-- Section 2: Abbreviation System -->
+    <div class="test-section">
+        <h2>2. Abbreviation Expansion</h2>
+        
+        <div class="test-case">
+            <h3>Test 2.1: Blackboard Bold</h3>
+            <div class="test-input">
+                The real numbers $\bR$ and complex numbers $\bC$ are important.
+            </div>
+            <div class="compose-area" contenteditable="true" data-test="2.1">
+                The real numbers $\bR$ and complex numbers $\bC$ are important.
+            </div>
+            <div class="note">\bR should expand to \mathbb R</div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 2.2: Bold and Calligraphic</h3>
+            <div class="test-input">
+                Matrix $\bfA$ maps to space $\cH$.
+            </div>
+            <div class="compose-area" contenteditable="true" data-test="2.2">
+                Matrix $\bfA$ maps to space $\cH$.
+            </div>
+            <div class="note">\bfA → \mathbf A, \cH → \mathcal H</div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 2.3: All Abbreviation Types</h3>
+            <div class="test-input">
+                Test all: $\bA$ $\bfB$ $\dC$ $\cD$ $\fE$ $\wF$ $\oG$ $\uH$
+            </div>
+            <div class="compose-area" contenteditable="true" data-test="2.3">
+                Test all: $\bA$ $\bfB$ $\dC$ $\cD$ $\fE$ $\wF$ $\oG$ $\uH$
+            </div>
+            <div class="note">All abbreviations should expand correctly</div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 2.4: Case Sensitivity</h3>
+            <div class="test-input">
+                Uppercase $\bA$ and lowercase $\ba$ both work.
+            </div>
+            <div class="compose-area" contenteditable="true" data-test="2.4">
+                Uppercase $\bA$ and lowercase $\ba$ both work.
+            </div>
+            <div class="note">Both cases should expand</div>
+        </div>
+    </div>
+
+    <!-- Section 3: Theorem Environments -->
+    <div class="test-section">
+        <h2>3. Theorem Environments</h2>
+        
+        <div class="test-case">
+            <h3>Test 3.1: Basic Theorem</h3>
+            <div class="test-input">
+                \begin{theorem}
+                Every bounded sequence has a convergent subsequence.
+                \end{theorem}
+            </div>
+            <div class="compose-area" contenteditable="true" data-test="3.1">
+                \begin{theorem}
+                Every bounded sequence has a convergent subsequence.
+                \end{theorem}
+            </div>
+            <div class="note">Should show in yellow box (default)</div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 3.2: Colored Lemma</h3>
+            <div class="test-input">
+                \begin{lemma}[blue]
+                If $f$ is continuous, then $f$ is integrable.
+                \end{lemma}
+            </div>
+            <div class="compose-area" contenteditable="true" data-test="3.2">
+                \begin{lemma}[blue]
+                If $f$ is continuous, then $f$ is integrable.
+                \end{lemma}
+            </div>
+            <div class="note">Should show in blue box</div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 3.3: All Environment Types</h3>
+            <div class="test-input">
+                \begin{definition}[green]
+                A group is a set with an operation.
+                \end{definition}
+
+                \begin{proposition}[red]
+                All groups have an identity.
+                \end{proposition}
+
+                \begin{corollary}[gray]
+                The identity is unique.
+                \end{corollary}
+            </div>
+            <div class="compose-area" contenteditable="true" data-test="3.3">
+                \begin{definition}[green]
+                A group is a set with an operation.
+                \end{definition}
+
+                \begin{proposition}[red]
+                All groups have an identity.
+                \end{proposition}
+
+                \begin{corollary}[gray]
+                The identity is unique.
+                \end{corollary}
+            </div>
+            <div class="note">Each should have its color</div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 3.4: Theorem with Math</h3>
+            <div class="test-input">
+                \begin{theorem}[blue]
+                For any $n \in \bN$, we have $\sum_{i=1}^n i = \frac{n(n+1)}{2}$.
+                \end{theorem}
+            </div>
+            <div class="compose-area" contenteditable="true" data-test="3.4">
+                \begin{theorem}[blue]
+                For any $n \in \bN$, we have $\sum_{i=1}^n i = \frac{n(n+1)}{2}$.
+                \end{theorem}
+            </div>
+            <div class="note">Math inside theorem should render</div>
+        </div>
+    </div>
+
+    <!-- Section 4: Trailing Space Protection -->
+    <div class="test-section">
+        <h2>4. Trailing Space Handling</h2>
+        
+        <div class="test-case">
+            <h3>Test 4.1: Formula with Trailing Space</h3>
+            <div class="test-input">
+                This $x^2 $ should not render (space at end).
+            </div>
+            <div class="compose-area" contenteditable="true" data-test="4.1">
+                This $x^2 $ should not render (space at end).
+            </div>
+            <div class="note">Should NOT render as LaTeX</div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 4.2: Formula with Leading Space</h3>
+            <div class="test-input">
+                This $ x^2$ should not render (space at start).
+            </div>
+            <div class="compose-area" contenteditable="true" data-test="4.2">
+                This $ x^2$ should not render (space at start).
+            </div>
+            <div class="note">Should NOT render as LaTeX</div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 4.3: Formula with Both Spaces</h3>
+            <div class="test-input">
+                This $ x^2 $ should not render (spaces both sides).
+            </div>
+            <div class="compose-area" contenteditable="true" data-test="4.3">
+                This $ x^2 $ should not render (spaces both sides).
+            </div>
+            <div class="note">Should NOT render as LaTeX</div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 4.4: Valid Formula with Internal Spaces</h3>
+            <div class="test-input">
+                This $x + y = z$ should render (internal spaces OK).
+            </div>
+            <div class="compose-area" contenteditable="true" data-test="4.4">
+                This $x + y = z$ should render (internal spaces OK).
+            </div>
+            <div class="note">Should render normally</div>
+        </div>
+    </div>
+
+    <!-- Section 5: Currency Exclusion -->
+    <div class="test-section">
+        <h2>5. Enhanced Currency Detection</h2>
+        
+        <div class="test-case">
+            <h3>Test 5.1: Basic Currency</h3>
+            <div class="test-input">
+                Price is $19.99 and total is $1,234.56
+            </div>
+            <div class="compose-area" contenteditable="true" data-test="5.1">
+                Price is $19.99 and total is $1,234.56
+            </div>
+            <div class="note">Should NOT render as LaTeX</div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 5.2: Currency Ranges</h3>
+            <div class="test-input">
+                Budget: $100-$200, Savings: $5M, Cost: $10k
+            </div>
+            <div class="compose-area" contenteditable="true" data-test="5.2">
+                Budget: $100-$200, Savings: $5M, Cost: $10k
+            </div>
+            <div class="note">Should NOT render as LaTeX</div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 5.3: Math with Dollar Signs</h3>
+            <div class="test-input">
+                Math equation: $1 + 1 = 2$ and $x^2 + y^2 = z^2$
+            </div>
+            <div class="compose-area" contenteditable="true" data-test="5.3">
+                Math equation: $1 + 1 = 2$ and $x^2 + y^2 = z^2$
+            </div>
+            <div class="note">SHOULD render as LaTeX (has operators)</div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 5.4: Mixed Currency and Math</h3>
+            <div class="test-input">
+                Cost is $50 each but formula is $n = 50$
+            </div>
+            <div class="compose-area" contenteditable="true" data-test="5.4">
+                Cost is $50 each but formula is $n = 50$
+            </div>
+            <div class="note">First is currency, second is math</div>
+        </div>
+    </div>
+
+    <!-- Section 6: Integration Tests -->
+    <div class="test-section">
+        <h2>6. Integration & Edge Cases</h2>
+        
+        <div class="test-case">
+            <h3>Test 6.1: All Features Combined</h3>
+            <div class="test-input">
+                \begin{theorem}[blue]
+                For the field $\bR$ with \(x \in \bR\), we have:
+                \[\sum_{i=1}^n \frac{1}{i^2} < 2\]
+                This costs $100 not \$100 in math.
+                \end{theorem}
+            </div>
+            <div class="compose-area" contenteditable="true" data-test="6.1">
+                \begin{theorem}[blue]
+                For the field $\bR$ with \(x \in \bR\), we have:
+                \[\sum_{i=1}^n \frac{1}{i^2} < 2\]
+                This costs $100 not \$100 in math.
+                \end{theorem}
+            </div>
+            <div class="note">All features should work together</div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 6.2: Pattern Priority</h3>
+            <div class="test-input">
+                Display takes priority: $$x^2$$ over $x^2$ when overlapping.
+                Also \[y^2\] over \(y^2\) when nested.
+            </div>
+            <div class="compose-area" contenteditable="true" data-test="6.2">
+                Display takes priority: $$x^2$$ over $x^2$ when overlapping.
+                Also \[y^2\] over \(y^2\) when nested.
+            </div>
+            <div class="note">Display patterns should win</div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 6.3: Escaped Delimiters</h3>
+            <div class="test-input">
+                Literal \$ and \( and \[ should not trigger rendering.
+            </div>
+            <div class="compose-area" contenteditable="true" data-test="6.3">
+                Literal \$ and \( and \[ should not trigger rendering.
+            </div>
+            <div class="note">Escaped delimiters should be literal</div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 6.4: Performance Test</h3>
+            <div class="test-input">
+                $a_1$ $a_2$ $a_3$ $a_4$ $a_5$ $a_6$ $a_7$ $a_8$ $a_9$ $a_{10}$
+                \(b_1\) \(b_2\) \(b_3\) \(b_4\) \(b_5\)
+                $$c_1$$ $$c_2$$ $$c_3$$
+                \[d_1\] \[d_2\]
+            </div>
+            <div class="compose-area" contenteditable="true" data-test="6.4">
+                $a_1$ $a_2$ $a_3$ $a_4$ $a_5$ $a_6$ $a_7$ $a_8$ $a_9$ $a_{10}$
+                \(b_1\) \(b_2\) \(b_3\) \(b_4\) \(b_5\)
+                $$c_1$$ $$c_2$$ $$c_3$$
+                \[d_1\] \[d_2\]
+            </div>
+            <div class="note">Should process 20 formulas quickly</div>
+        </div>
+    </div>
+
+    <!-- Section 7: Backward Compatibility -->
+    <div class="test-section">
+        <h2>7. Backward Compatibility</h2>
+        
+        <div class="test-case">
+            <h3>Test 7.1: Story 1.1-3.1 Features</h3>
+            <div class="test-input">
+                Basic: $x^2$, Display: $$\int_0^1 f(x)dx$$
+                Greek: $\alpha + \beta = \gamma$
+                Simple mode test (toggle if enabled)
+            </div>
+            <div class="compose-area" contenteditable="true" data-test="7.1">
+                Basic: $x^2$, Display: $$\int_0^1 f(x)dx$$
+                Greek: $\alpha + \beta = \gamma$
+                Simple mode test (toggle if enabled)
+            </div>
+            <div class="note">All previous features should work</div>
+        </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="test-section">
+        <h2>Test Controls</h2>
+        <div class="controls">
+            <button class="tex-button" onclick="loadExtension()">Load Extension</button>
+            <button class="tex-button" onclick="runAllTests()">Run All Tests</button>
+            <button class="tex-button" onclick="clearAll()">Clear All</button>
+            <button class="tex-button" onclick="toggleSimpleMode()">Toggle Simple Mode</button>
+        </div>
+        <div class="note">
+            <strong>Instructions:</strong>
+            <ol>
+                <li>Open this file in Chrome with the extension loaded</li>
+                <li>Click "Load Extension" to inject content.js</li>
+                <li>Type or paste test cases into the compose areas</li>
+                <li>Check that LaTeX renders correctly</li>
+                <li>Use "Run All Tests" for automated checking</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        // Load the content script for testing
+        function loadExtension() {
+            const script = document.createElement('script');
+            script.src = chrome.runtime.getURL('content.js');
+            document.head.appendChild(script);
+            console.log('Extension loaded for testing');
+        }
+
+        // Run automated tests
+        function runAllTests() {
+            console.log('Running all tests...');
+            const areas = document.querySelectorAll('.compose-area');
+            areas.forEach(area => {
+                // Trigger input event to process LaTeX
+                area.dispatchEvent(new Event('input', { bubbles: true }));
+            });
+            
+            // Check results after processing
+            setTimeout(() => {
+                checkResults();
+            }, 2000);
+        }
+
+        // Check test results
+        function checkResults() {
+            const testCases = document.querySelectorAll('.test-case');
+            let passed = 0;
+            let failed = 0;
+            
+            testCases.forEach(testCase => {
+                const area = testCase.querySelector('.compose-area');
+                const hasRendered = area.querySelector('img[alt*="$"], img[alt*="\\"], .tex-theorem-env, .simple-math');
+                
+                // Simple check - you'd want more sophisticated validation
+                if (hasRendered) {
+                    passed++;
+                    console.log(`✓ ${testCase.querySelector('h3').textContent}`);
+                } else {
+                    failed++;
+                    console.log(`✗ ${testCase.querySelector('h3').textContent}`);
+                }
+            });
+            
+            console.log(`Results: ${passed} passed, ${failed} failed`);
+        }
+
+        // Clear all compose areas
+        function clearAll() {
+            document.querySelectorAll('.compose-area').forEach(area => {
+                area.innerHTML = '';
+            });
+        }
+
+        // Toggle Simple Mode for testing
+        function toggleSimpleMode() {
+            if (window.TeXForGmail) {
+                window.TeXForGmail.simpleMode = !window.TeXForGmail.simpleMode;
+                console.log('Simple Mode:', window.TeXForGmail.simpleMode);
+            } else {
+                console.log('Extension not loaded');
+            }
+        }
+
+        // Auto-load if extension is available
+        if (typeof chrome !== 'undefined' && chrome.runtime) {
+            loadExtension();
+        }
+    </script>
+</body>
+</html>

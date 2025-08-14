@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orphaned Delimiter Fix Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-area {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 { color: #1a73e8; }
+        h2 { color: #333; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; }
+        .compose {
+            min-height: 80px;
+            padding: 15px;
+            border: 2px solid #ddd;
+            margin: 10px 0;
+            background: #f9f9f9;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+        }
+        .expected {
+            background: #e8f5e9;
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 4px solid #4caf50;
+        }
+        .note {
+            color: #666;
+            font-style: italic;
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Testing Orphaned Delimiter Fix</h1>
+    <p>This test verifies that text nodes with orphaned delimiters don't block valid LaTeX in the same node.</p>
+
+    <div class="test-area">
+        <h2>Test 1: Mixed Orphaned and Valid Patterns</h2>
+        <div class="note">Text contains orphaned \( and valid LaTeX in same node</div>
+        <div class="compose" contenteditable="true" g_editable="true">The symbol \( is used to start inline math in LaTeX, and here's a valid equation: $x^2 + y^2 = z^2$. Also, \[ starts display math.</div>
+        <div class="expected">
+            <strong>Expected:</strong> 
+            <ul>
+                <li>"\(" and "\[" should appear as literal text</li>
+                <li>$x^2 + y^2 = z^2$ should render as math</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="test-area">
+        <h2>Test 2: Escaped Dollar Signs with Valid LaTeX</h2>
+        <div class="note">Text contains escaped dollar signs and valid LaTeX</div>
+        <div class="compose" contenteditable="true" g_editable="true">The price is \$50.00 (escaped dollar), but this equation $E = mc^2$ should render. Another price: \$99.99</div>
+        <div class="expected">
+            <strong>Expected:</strong>
+            <ul>
+                <li>"\$50.00" and "\$99.99" should appear as literal dollar amounts</li>
+                <li>$E = mc^2$ should render as math</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="test-area">
+        <h2>Test 3: Complete Patterns Work</h2>
+        <div class="note">Complete \(...\) and \[...\] patterns should still work</div>
+        <div class="compose" contenteditable="true" g_editable="true">Inline math: \(a^2 + b^2 = c^2\) and display math: \[\int_0^1 f(x) dx\]</div>
+        <div class="expected">
+            <strong>Expected:</strong>
+            <ul>
+                <li>\(a^2 + b^2 = c^2\) should render as inline math</li>
+                <li>\[\int_0^1 f(x) dx\] should render as display math</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="test-area">
+        <h2>Test 4: Complex Mixed Content</h2>
+        <div class="note">All types mixed in one text node</div>
+        <div class="compose" contenteditable="true" g_editable="true">Text with orphaned \( and \[, escaped \$100, valid dollar math $y = mx + b$, parenthesis math \(e^{i\pi} = -1\), and bracket math \[\sum_{n=1}^{\infty} \frac{1}{n^2} = \frac{\pi^2}{6}\]</div>
+        <div class="expected">
+            <strong>Expected:</strong>
+            <ul>
+                <li>Orphaned "\(" and "\[" as literal text</li>
+                <li>"\$100" as literal text</li>
+                <li>All three math expressions should render</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="test-area">
+        <h2>Test 5: Only Escaped Content</h2>
+        <div class="note">Text with only escaped delimiters, no valid LaTeX</div>
+        <div class="compose" contenteditable="true" g_editable="true">This text has \$50, \$100, orphaned \(, and orphaned \[ but no valid LaTeX patterns.</div>
+        <div class="expected">
+            <strong>Expected:</strong> All escaped and orphaned delimiters should appear as literal text
+        </div>
+    </div>
+
+    <script src="content.js"></script>
+    <script>
+        // Initialize after a delay
+        setTimeout(() => {
+            console.log('Test page loaded. Testing orphaned delimiter fix.');
+            if (typeof TeXForGmail !== 'undefined' && TeXForGmail.init) {
+                TeXForGmail.init();
+            }
+            
+            // Trigger processing on all compose areas
+            setTimeout(() => {
+                const areas = document.querySelectorAll('.compose');
+                areas.forEach((area, index) => {
+                    console.log(`Processing test ${index + 1}...`);
+                    if (typeof detectAndRenderLatex === 'function') {
+                        detectAndRenderLatex(area);
+                    }
+                });
+            }, 500);
+        }, 1000);
+    </script>
+</body>
+</html>

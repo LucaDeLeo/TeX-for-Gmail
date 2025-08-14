@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>QA Review Test - Story 3.2</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-area { 
+            border: 2px solid #ccc; 
+            padding: 15px; 
+            margin: 20px 0;
+            min-height: 100px;
+            background: white;
+        }
+        h2 { color: #333; }
+        .note { color: #666; font-style: italic; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h1>QA Review Test - Story 3.2 Theorem Bug Fix</h1>
+    
+    <h2>Test 1: Basic Theorem with Color</h2>
+    <div class="note">This should render with a blue background and proper title</div>
+    <div class="test-area" contenteditable="true">
+        \begin{theorem}[blue]
+        This is a test theorem to verify the regex fix works correctly.
+        \end{theorem}
+    </div>
+    
+    <h2>Test 2: Multiple Environments</h2>
+    <div class="note">Each should have correct color and title</div>
+    <div class="test-area" contenteditable="true">
+        \begin{definition}[green]
+        A definition with green background.
+        \end{definition}
+        
+        \begin{lemma}[red]
+        A lemma with red background.
+        \end{lemma}
+    </div>
+    
+    <h2>Test 3: Theorem with Math</h2>
+    <div class="note">Math inside theorem should render correctly</div>
+    <div class="test-area" contenteditable="true">
+        \begin{theorem}[yellow]
+        For any $n \in \bN$, we have $\sum_{i=1}^n i = \frac{n(n+1)}{2}$.
+        \end{theorem}
+    </div>
+    
+    <h2>Test 4: Abbreviation Expansion</h2>
+    <div class="note">All abbreviations should expand correctly</div>
+    <div class="test-area" contenteditable="true">
+        Test abbreviations: $\bR$, $\cH$, $\fA$, $\wB$, $\oC$, $\uD$, $\bfE$, $\dF$
+    </div>
+    
+    <button onclick="loadExtension()">Load Extension</button>
+    
+    <script>
+        function loadExtension() {
+            // Load the content.js file
+            const script = document.createElement('script');
+            script.src = chrome.runtime.getURL('content.js');
+            document.head.appendChild(script);
+            console.log('Extension loaded');
+        }
+    </script>
+</body>
+</html>
