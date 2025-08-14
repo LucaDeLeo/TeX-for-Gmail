@@ -149,10 +149,29 @@
       TeXForGmail.log('Falling back to element-by-element restoration');
       let restoredCount = 0;
       renderedElements.forEach(element => {
-        const latex = element.getAttribute('data-latex');
-        if (latex && element.parentNode) {
-          const isDisplay = element.classList.contains('tex-math-display');
-          const textNode = document.createTextNode(isDisplay ? `$$${latex}$$` : `$${latex}$`);
+        // Task 3 (Story 2.2): Use extractSourceFromElement for attribute-based restoration
+        // First try to get source from img element inside the wrapper
+        const img = element.querySelector('img');
+        let latexSource = null;
+        
+        if (img) {
+          // Extract from img attributes using the new function
+          latexSource = extractSourceFromElement(img);
+        }
+        
+        // Fallback to wrapper's data-latex if img extraction failed
+        // This handles legacy rendered elements from earlier versions
+        if (!latexSource || latexSource === '[LaTeX source lost]') {
+          const latex = element.getAttribute('data-latex');
+          if (latex) {
+            const isDisplay = element.classList.contains('tex-math-display');
+            latexSource = isDisplay ? `$$${latex}$$` : `$${latex}$`;
+            TeXForGmail.log('Recovered source from wrapper element (legacy fallback)');
+          }
+        }
+        
+        if (latexSource && latexSource !== '[LaTeX source lost]' && element.parentNode) {
+          const textNode = document.createTextNode(latexSource);
           element.parentNode.replaceChild(textNode, element);
           restoredCount++;
         }
@@ -434,6 +453,7 @@
   }
 
   // Task 3: Create wrapper element for rendered math
+  // Task 1 (Story 2.2): Enhanced with self-documenting attributes
   function createMathWrapper(latex, isDisplay, imgUrl) {
     const wrapper = document.createElement('span');
     wrapper.className = isDisplay ? 'tex-math-display' : 'tex-math-inline';
@@ -443,19 +463,122 @@
     
     const img = document.createElement('img');
     img.src = imgUrl;
-    img.alt = isDisplay ? `$$${latex}$$` : `$${latex}$`;
-    img.style.verticalAlign = 'middle';
     
-    // Error handling for image loading
+    // Story 2.2: Self-documenting attributes
+    // Primary source - survives everything including copy/paste
+    img.alt = isDisplay ? `$$${latex}$$` : `$${latex}$`;
+    
+    // User tooltip - helpful hint
+    img.title = `LaTeX: ${img.alt}`;
+    
+    // Task 4 (Story 2.2): Progressive enhancement with dataset support check
+    // Clean source for extension (no delimiters)
+    if ('dataset' in img) {
+      img.setAttribute('data-latex', latex);
+      
+      // Display type
+      img.setAttribute('data-display', isDisplay ? 'block' : 'inline');
+      
+      // Track when rendered
+      img.setAttribute('data-timestamp', Date.now().toString());
+      
+      // Extension version
+      img.setAttribute('data-version', '1.0.0');
+    } else {
+      // Fallback for browsers without dataset support
+      // Store in standard attributes with prefix
+      img.setAttribute('tex-latex', latex);
+      img.setAttribute('tex-display', isDisplay ? 'block' : 'inline');
+      TeXForGmail.log('Using fallback attributes - dataset not supported');
+    }
+    
+    // CSS class for consistent styling
+    img.className = 'tex-rendered';
+    
+    // Prevent cursor issues in Gmail composer
+    img.contentEditable = false;
+    
+    // Consistent styling
+    img.style.verticalAlign = 'middle';
+    img.style.cursor = 'pointer';
+    
+    // Error handling for image loading with improved user feedback
     img.onerror = function() {
       TeXForGmail.log('Error: Failed to load LaTeX image', latex);
       // Replace with original text on error
-      wrapper.textContent = isDisplay ? `$$${latex}$$` : `$${latex}$`;
+      const sourceText = isDisplay ? `$$${latex}$$` : `$${latex}$`;
+      wrapper.textContent = sourceText;
       wrapper.classList.add('tex-render-error');
+      wrapper.setAttribute('title', 'Failed to render LaTeX - showing source');
+      // Store the source in localStorage as backup for failed renders
+      try {
+        if (typeof localStorage !== 'undefined' && img.src) {
+          localStorage.setItem(`tex_${img.src}`, sourceText);
+        }
+      } catch (e) {
+        // Silently fail if localStorage is not available
+      }
     };
     
     wrapper.appendChild(img);
     return wrapper;
+  }
+
+  // Task 2 (Story 2.2): Extract LaTeX source from element with multiple fallbacks
+  // Task 4 (Story 2.2): Enhanced with progressive enhancement support
+  function extractSourceFromElement(element) {
+    // Early return for null/undefined elements
+    if (!element) {
+      TeXForGmail.log('extractSourceFromElement: null element provided');
+      return '[LaTeX source lost]';
+    }
+    
+    // Priority 1: Check data-latex attribute and add appropriate delimiters
+    // Most modern browsers will hit this path for maximum performance
+    if (element.dataset?.latex) {
+      const display = element.dataset.display === 'block' ? '$$' : '$';
+      return `${display}${element.dataset.latex}${display}`;
+    }
+    
+    // Priority 2: Check alt attribute (already has delimiters) - always present as primary fallback
+    // This is the most reliable fallback and should be checked early
+    if (element.alt) {
+      return element.alt;
+    }
+    
+    // Fallback for browsers without dataset support
+    if (element.getAttribute) {
+      const texLatex = element.getAttribute('tex-latex');
+      if (texLatex) {
+        const texDisplay = element.getAttribute('tex-display');
+        const display = texDisplay === 'block' ? '$$' : '$';
+        return `${display}${texLatex}${display}`;
+      }
+    }
+    
+    // Priority 3: Check title attribute and remove "LaTeX: " prefix
+    if (element.title?.startsWith('LaTeX: ')) {
+      return element.title.substring(7);
+    }
+    
+    // Priority 4: Check localStorage (with safe try-catch)
+    // This is expensive so we check it last
+    try {
+      if (typeof localStorage !== 'undefined' && element.src) {
+        const cached = localStorage.getItem(`tex_${element.src}`);
+        if (cached) {
+          TeXForGmail.log('Source recovered from localStorage cache');
+          return cached;
+        }
+      }
+    } catch (e) {
+      // localStorage might not be available or accessible
+      TeXForGmail.log('localStorage not available for source extraction');
+    }
+    
+    // Last resort - source is lost
+    TeXForGmail.log('WARNING: LaTeX source could not be extracted from element');
+    return '[LaTeX source lost]';
   }
 
   // Helper function to calculate absolute character offset from start of container

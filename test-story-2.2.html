@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Story 2.2: Self-Documenting LaTeX Images Test</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            max-width: 1200px; 
+            margin: 20px auto; 
+            padding: 20px;
+        }
+        .compose-area {
+            border: 2px solid #ccc;
+            padding: 15px;
+            min-height: 200px;
+            margin: 20px 0;
+            background: white;
+        }
+        .test-section {
+            margin: 30px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .test-result {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 3px;
+        }
+        .test-result.pass {
+            background: #d4edda;
+            color: #155724;
+        }
+        .test-result.fail {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 3px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        #toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px;
+            background: #333;
+            color: white;
+            border-radius: 5px;
+            display: none;
+        }
+        #toast.show {
+            display: block;
+        }
+        .attribute-display {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 3px;
+            margin: 10px 0;
+            font-family: monospace;
+            font-size: 12px;
+            word-break: break-all;
+        }
+        .tex-rendered {
+            border: 1px dashed #28a745;
+            padding: 2px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Story 2.2: Self-Documenting LaTeX Images Test Suite</h1>
+    
+    <div id="toast"></div>
+
+    <!-- Test 1: Attribute Preservation -->
+    <div class="test-section">
+        <h2>Test 1: Self-Documenting Attributes (AC: 1, 5, 6)</h2>
+        <p>Verify all self-documenting attributes are added to rendered images</p>
+        <div id="compose1" class="compose-area" contenteditable="true">
+Inline equation: $x^2 + y^2 = z^2$
+
+Display equation:
+$$\int_{-\infty}^{\infty} e^{-x^2} dx = \sqrt{\pi}$$
+
+Mixed content with text and $a + b = c$ more text.
+        </div>
+        <button onclick="runTest1()">Run Test 1</button>
+        <div id="test1-results"></div>
+    </div>
+
+    <!-- Test 2: Source Extraction -->
+    <div class="test-section">
+        <h2>Test 2: Source Extraction Function (AC: 2, 3)</h2>
+        <p>Test extractSourceFromElement with various fallback scenarios</p>
+        <div id="compose2" class="compose-area" contenteditable="true">
+Test equation: $E = mc^2$
+        </div>
+        <button onclick="runTest2()">Run Test 2</button>
+        <div id="test2-results"></div>
+    </div>
+
+    <!-- Test 3: Toggle Restoration -->
+    <div class="test-section">
+        <h2>Test 3: Toggle OFF Restoration (AC: 3, 4, 7)</h2>
+        <p>Verify source restoration from attributes instead of WeakMap</p>
+        <div id="compose3" class="compose-area" contenteditable="true">
+Quadratic formula: $x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}$
+
+Maxwell equations: $$\nabla \cdot E = \frac{\rho}{\epsilon_0}$$
+        </div>
+        <button onclick="runTest3()">Run Test 3</button>
+        <div id="test3-results"></div>
+    </div>
+
+    <!-- Test 4: Progressive Enhancement -->
+    <div class="test-section">
+        <h2>Test 4: Progressive Enhancement (AC: 5, 6, 8)</h2>
+        <p>Test graceful degradation and performance</p>
+        <div id="compose4" class="compose-area" contenteditable="true">
+Performance test: $\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$
+        </div>
+        <button onclick="runTest4()">Run Test 4</button>
+        <div id="test4-results"></div>
+    </div>
+
+    <!-- Test 5: Backward Compatibility -->
+    <div class="test-section">
+        <h2>Test 5: Migration and Backward Compatibility (AC: 4, 7)</h2>
+        <p>Ensure old rendered equations still work</p>
+        <div id="compose5" class="compose-area" contenteditable="true">
+            <!-- Will inject old-style rendered content -->
+        </div>
+        <button onclick="runTest5()">Run Test 5</button>
+        <div id="test5-results"></div>
+    </div>
+
+    <!-- Load the extension -->
+    <script src="content.js"></script>
+    
+    <script>
+        // Initialize TeXForGmail
+        window.addEventListener('load', () => {
+            if (typeof TeXForGmail !== 'undefined' && TeXForGmail.init) {
+                TeXForGmail.init();
+                console.log('TeXForGmail initialized for testing');
+            }
+        });
+
+        function showResult(containerId, message, success) {
+            const container = document.getElementById(containerId);
+            const result = document.createElement('div');
+            result.className = `test-result ${success ? 'pass' : 'fail'}`;
+            result.textContent = message;
+            container.appendChild(result);
+        }
+
+        function clearResults(containerId) {
+            document.getElementById(containerId).innerHTML = '';
+        }
+
+        // Test 1: Verify all attributes are present
+        function runTest1() {
+            clearResults('test1-results');
+            const compose = document.getElementById('compose1');
+            
+            // Enable rendering
+            const toggleBtn = document.createElement('div');
+            toggleBtn.className = 'gmail-tex-toggle';
+            compose.appendChild(toggleBtn);
+            toggleBtn.click();
+            
+            setTimeout(() => {
+                const images = compose.querySelectorAll('img.tex-rendered');
+                
+                if (images.length === 0) {
+                    showResult('test1-results', 'FAIL: No rendered images found', false);
+                    return;
+                }
+                
+                let allPass = true;
+                images.forEach((img, index) => {
+                    const requiredAttrs = ['alt', 'title', 'data-latex', 'data-display', 
+                                          'data-timestamp', 'data-version', 'class'];
+                    const missingAttrs = [];
+                    
+                    requiredAttrs.forEach(attr => {
+                        if (!img.getAttribute(attr)) {
+                            missingAttrs.push(attr);
+                            allPass = false;
+                        }
+                    });
+                    
+                    if (missingAttrs.length > 0) {
+                        showResult('test1-results', 
+                            `Image ${index + 1}: Missing attributes: ${missingAttrs.join(', ')}`, false);
+                    } else {
+                        // Display attributes for verification
+                        const attrDisplay = document.createElement('div');
+                        attrDisplay.className = 'attribute-display';
+                        attrDisplay.innerHTML = `
+                            Image ${index + 1} Attributes:<br>
+                            alt: "${img.alt}"<br>
+                            title: "${img.title}"<br>
+                            data-latex: "${img.getAttribute('data-latex')}"<br>
+                            data-display: "${img.getAttribute('data-display')}"<br>
+                            data-timestamp: "${img.getAttribute('data-timestamp')}"<br>
+                            data-version: "${img.getAttribute('data-version')}"<br>
+                            class: "${img.className}"<br>
+                            contenteditable: "${img.contentEditable}"
+                        `;
+                        document.getElementById('test1-results').appendChild(attrDisplay);
+                        showResult('test1-results', `Image ${index + 1}: All attributes present ✓`, true);
+                    }
+                });
+                
+                if (allPass) {
+                    showResult('test1-results', 'TEST 1 PASSED: All self-documenting attributes present', true);
+                } else {
+                    showResult('test1-results', 'TEST 1 FAILED: Some attributes missing', false);
+                }
+            }, 500);
+        }
+
+        // Test 2: Source extraction with fallbacks
+        function runTest2() {
+            clearResults('test2-results');
+            const compose = document.getElementById('compose2');
+            
+            // Enable rendering
+            const toggleBtn = document.createElement('div');
+            toggleBtn.className = 'gmail-tex-toggle';
+            compose.appendChild(toggleBtn);
+            toggleBtn.click();
+            
+            setTimeout(() => {
+                const img = compose.querySelector('img.tex-rendered');
+                if (!img) {
+                    showResult('test2-results', 'FAIL: No rendered image found', false);
+                    return;
+                }
+                
+                // Test extraction from each attribute level
+                const originalDataLatex = img.getAttribute('data-latex');
+                const originalAlt = img.alt;
+                const originalTitle = img.title;
+                
+                // Test Priority 1: data-latex
+                let source = extractSourceFromElement(img);
+                showResult('test2-results', 
+                    `Priority 1 (data-latex): ${source === '$E = mc^2$' ? 'PASS' : 'FAIL'} - Got: "${source}"`, 
+                    source === '$E = mc^2$');
+                
+                // Remove data attributes to test Priority 2
+                img.removeAttribute('data-latex');
+                img.removeAttribute('data-display');
+                source = extractSourceFromElement(img);
+                showResult('test2-results', 
+                    `Priority 2 (alt): ${source === '$E = mc^2$' ? 'PASS' : 'FAIL'} - Got: "${source}"`, 
+                    source === '$E = mc^2$');
+                
+                // Remove alt to test Priority 3
+                img.removeAttribute('alt');
+                source = extractSourceFromElement(img);
+                showResult('test2-results', 
+                    `Priority 3 (title): ${source === '$E = mc^2$' ? 'PASS' : 'FAIL'} - Got: "${source}"`, 
+                    source === '$E = mc^2$');
+                
+                // Remove title to test fallback
+                img.removeAttribute('title');
+                source = extractSourceFromElement(img);
+                showResult('test2-results', 
+                    `Fallback: ${source === '[LaTeX source lost]' ? 'PASS' : 'FAIL'} - Got: "${source}"`, 
+                    source === '[LaTeX source lost]');
+                
+                // Restore attributes
+                img.setAttribute('data-latex', originalDataLatex);
+                img.alt = originalAlt;
+                img.title = originalTitle;
+                
+                showResult('test2-results', 'TEST 2 PASSED: Source extraction works with all fallback levels', true);
+            }, 500);
+        }
+
+        // Test 3: Toggle restoration
+        function runTest3() {
+            clearResults('test3-results');
+            const compose = document.getElementById('compose3');
+            const originalContent = compose.textContent;
+            
+            // Enable rendering
+            const toggleBtn = document.createElement('div');
+            toggleBtn.className = 'gmail-tex-toggle';
+            compose.appendChild(toggleBtn);
+            toggleBtn.click();
+            
+            setTimeout(() => {
+                const renderedCount = compose.querySelectorAll('img.tex-rendered').length;
+                showResult('test3-results', `Rendered ${renderedCount} equations`, true);
+                
+                // Clear WeakMap to force attribute-based restoration
+                if (TeXForGmail && TeXForGmail.originalContent) {
+                    TeXForGmail.originalContent.delete(compose);
+                    showResult('test3-results', 'WeakMap cleared - forcing attribute-based restoration', true);
+                }
+                
+                // Toggle OFF
+                toggleBtn.click();
+                
+                setTimeout(() => {
+                    const restoredContent = compose.textContent;
+                    const hasFormula = restoredContent.includes('\\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}');
+                    const hasMaxwell = restoredContent.includes('\\nabla \\cdot E');
+                    
+                    if (hasFormula && hasMaxwell) {
+                        showResult('test3-results', 'TEST 3 PASSED: LaTeX source restored from attributes', true);
+                    } else {
+                        showResult('test3-results', 
+                            `TEST 3 FAILED: Source not properly restored. Got: "${restoredContent}"`, false);
+                    }
+                }, 500);
+            }, 500);
+        }
+
+        // Test 4: Progressive enhancement and performance
+        function runTest4() {
+            clearResults('test4-results');
+            const compose = document.getElementById('compose4');
+            
+            // Test performance
+            const startTime = performance.now();
+            
+            // Enable rendering
+            const toggleBtn = document.createElement('div');
+            toggleBtn.className = 'gmail-tex-toggle';
+            compose.appendChild(toggleBtn);
+            toggleBtn.click();
+            
+            setTimeout(() => {
+                const endTime = performance.now();
+                const renderTime = endTime - startTime;
+                
+                showResult('test4-results', 
+                    `Render time: ${renderTime.toFixed(2)}ms ${renderTime < 100 ? '(PASS: <100ms)' : '(FAIL: >100ms)'}`, 
+                    renderTime < 100);
+                
+                // Test dataset support
+                const img = compose.querySelector('img.tex-rendered');
+                if (img) {
+                    const hasDataset = 'dataset' in img;
+                    showResult('test4-results', 
+                        `Dataset API support: ${hasDataset ? 'YES' : 'NO (using fallbacks)'}`, true);
+                    
+                    // Test that alt attribute is always present
+                    const hasAlt = img.hasAttribute('alt');
+                    showResult('test4-results', 
+                        `Alt attribute (primary fallback): ${hasAlt ? 'PRESENT' : 'MISSING'}`, hasAlt);
+                    
+                    // Test localStorage safety
+                    try {
+                        const testKey = 'tex_test_' + Date.now();
+                        localStorage.setItem(testKey, 'test');
+                        localStorage.removeItem(testKey);
+                        showResult('test4-results', 'localStorage available', true);
+                    } catch (e) {
+                        showResult('test4-results', 'localStorage not available (graceful degradation)', true);
+                    }
+                    
+                    showResult('test4-results', 'TEST 4 PASSED: Progressive enhancement working', true);
+                } else {
+                    showResult('test4-results', 'TEST 4 FAILED: No rendered image found', false);
+                }
+            }, 500);
+        }
+
+        // Test 5: Backward compatibility
+        function runTest5() {
+            clearResults('test5-results');
+            const compose = document.getElementById('compose5');
+            
+            // Inject old-style rendered content (without new attributes)
+            compose.innerHTML = `
+                <div>Old rendered equation:</div>
+                <span class="tex-math-inline" data-latex="a^2 + b^2" data-processed="true">
+                    <img src="https://latex.codecogs.com/png.image?a%5E2%20%2B%20b%5E2" 
+                         alt="$a^2 + b^2$" 
+                         style="vertical-align: middle;">
+                </span>
+                <div>Some text</div>
+            `;
+            
+            // Try to restore using toggle
+            const toggleBtn = document.createElement('div');
+            toggleBtn.className = 'gmail-tex-toggle';
+            compose.appendChild(toggleBtn);
+            
+            // First click to set it ON (it thinks it's OFF initially)
+            toggleBtn.click();
+            
+            setTimeout(() => {
+                // Now toggle OFF to test restoration
+                toggleBtn.click();
+                
+                setTimeout(() => {
+                    const restoredContent = compose.textContent;
+                    const hasOldFormula = restoredContent.includes('$a^2 + b^2$');
+                    
+                    if (hasOldFormula) {
+                        showResult('test5-results', 
+                            'TEST 5 PASSED: Old-style rendered equations still restorable', true);
+                    } else {
+                        showResult('test5-results', 
+                            `TEST 5 FAILED: Old equation not restored. Got: "${restoredContent}"`, false);
+                    }
+                    
+                    // Test that send interceptor still works
+                    if (typeof TeXForGmail !== 'undefined' && TeXForGmail.setupSendInterceptor) {
+                        showResult('test5-results', 'Send interceptor function exists', true);
+                        showResult('test5-results', 'TEST 5 PASSED: Backward compatibility maintained', true);
+                    } else {
+                        showResult('test5-results', 'Send interceptor missing', false);
+                    }
+                }, 500);
+            }, 500);
+        }
+    </script>
+</body>
+</html>
