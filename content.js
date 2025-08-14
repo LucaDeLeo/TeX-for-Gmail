@@ -30,6 +30,344 @@
     maxLatexLength: 1000 // Maximum LaTeX string length
   };
 
+  // Storage Service with quota handling and fallback
+  class StorageService {
+    constructor() {
+      this.syncQuotaExceeded = false;
+      this.performanceMetrics = new Map();
+      
+      // Validation rules with defaults
+      this.validationRules = {
+        sendBehavior: { type: 'enum', values: ['always', 'never', 'ask'], default: 'ask' },
+        renderServer: { type: 'enum', values: ['codecogs', 'wordpress'], default: 'codecogs' },
+        dpiInline: { type: 'number', min: 100, max: 400, default: 200 },
+        dpiDisplay: { type: 'number', min: 100, max: 400, default: 300 },
+        simpleMathFontOutgoing: { type: 'font', maxLength: 100, default: 'serif' },
+        simpleMathFontIncoming: { type: 'font', maxLength: 100, default: 'serif' },
+        showComposeButton: { type: 'boolean', default: true },
+        showReadButton: { type: 'boolean', default: true },
+        enableKeyboardShortcuts: { type: 'boolean', default: true },
+        rememberSendChoice: { type: 'boolean', default: false },
+        lastSendChoice: { type: 'enum', values: ['render', 'send_without', null], default: null },
+        serverFallback: { type: 'boolean', default: true },
+        enableNaiveTeX: { type: 'boolean', default: false },
+        enableSimpleMath: { type: 'boolean', default: false },
+        maxApiCallsPerMinute: { type: 'number', min: 1, max: 1000, default: 60 },
+        debounceDelay: { type: 'number', min: 100, max: 5000, default: 500 },
+        debugMode: { type: 'boolean', default: false }
+      };
+      
+      // Rate limiting for storage operations
+      this.lastStorageOperation = 0;
+      this.minOperationInterval = 100; // Minimum 100ms between operations
+      
+      // Allowed font names for validation
+      this.allowedFonts = [
+        'serif', 'sans-serif', 'monospace', 'cursive', 'fantasy',
+        'system-ui', 'ui-serif', 'ui-sans-serif', 'ui-monospace', 'ui-rounded',
+        'Georgia', 'Times New Roman', 'Times', 'Arial', 'Helvetica',
+        'Verdana', 'Trebuchet MS', 'Gill Sans', 'Noto Sans', 'Roboto',
+        'Ubuntu', 'Courier New', 'Courier', 'Consolas', 'Monaco', 'Menlo'
+      ];
+    }
+    
+    // Sanitize font name to prevent CSS injection
+    sanitizeFontName(font) {
+      if (!font) return 'serif';
+      
+      // Remove any potential CSS injection vectors
+      let sanitized = font.toString().replace(/[^a-zA-Z0-9\s\-]/g, '');
+      
+      // Check if it's in the allowed list (case-insensitive)
+      const fontLower = sanitized.toLowerCase();
+      const isAllowed = this.allowedFonts.some(allowed => 
+        allowed.toLowerCase() === fontLower
+      );
+      
+      if (!isAllowed) {
+        console.warn(`Invalid font name "${font}", using default "serif"`);
+        return 'serif';
+      }
+      
+      return sanitized;
+    }
+    
+    // Validate a single value based on rules
+    validateValue(key, value, rule) {
+      if (!rule) return { valid: true, value };
+      
+      // Handle null/undefined values
+      if (value === null || value === undefined) {
+        // Use default value if available
+        if (rule.default !== undefined) {
+          return { valid: true, value: rule.default };
+        }
+        // For required fields, return error
+        if (rule.required) {
+          return { valid: false, error: `${key} is required`, value: rule.default };
+        }
+        // Otherwise, use default or null
+        return { valid: true, value: rule.default || null };
+      }
+      
+      switch (rule.type) {
+        case 'boolean':
+          // Handle string boolean values
+          if (typeof value === 'string') {
+            value = value.toLowerCase() === 'true' || value === '1' || value === 'yes';
+          }
+          return { 
+            valid: true,
+            value: Boolean(value)
+          };
+          
+        case 'number':
+          const num = Number(value);
+          if (isNaN(num) || !isFinite(num)) {
+            console.warn(`${key}: Invalid number "${value}", using default ${rule.default}`);
+            return { 
+              valid: true, 
+              value: rule.default || rule.min || 0
+            };
+          }
+          // Clamp to min/max automatically
+          let clampedValue = num;
+          if (rule.min !== undefined && num < rule.min) {
+            console.warn(`${key}: Value ${num} clamped to minimum ${rule.min}`);
+            clampedValue = rule.min;
+          }
+          if (rule.max !== undefined && num > rule.max) {
+            console.warn(`${key}: Value ${num} clamped to maximum ${rule.max}`);
+            clampedValue = rule.max;
+          }
+          // Round for integer values like DPI
+          return { valid: true, value: Math.round(clampedValue) };
+          
+        case 'enum':
+          // Handle case-insensitive matching for strings
+          if (value === null && rule.values.includes(null)) {
+            return { valid: true, value: null };
+          }
+          
+          const normalizedValue = typeof value === 'string' ? value.toLowerCase() : value;
+          const validValue = rule.values.find(v => 
+            (typeof v === 'string' ? v.toLowerCase() : v) === normalizedValue
+          );
+          
+          if (validValue === undefined) {
+            // Use default or first valid value
+            const defaultValue = rule.default !== undefined ? rule.default : rule.values[0];
+            console.warn(`${key}: Invalid value "${value}", using default "${defaultValue}"`);
+            return { 
+              valid: true, 
+              value: defaultValue
+            };
+          }
+          return { valid: true, value: validValue };
+          
+        case 'font':
+          const sanitized = this.sanitizeFontName(value);
+          // Ensure it's not empty after sanitization
+          if (!sanitized || sanitized.length === 0) {
+            return { valid: true, value: rule.default || 'serif' };
+          }
+          if (rule.maxLength && sanitized.length > rule.maxLength) {
+            return { 
+              valid: true, 
+              value: sanitized.substring(0, rule.maxLength)
+            };
+          }
+          return { valid: true, value: sanitized };
+          
+        default:
+          console.warn(`Unknown validation type: ${rule.type}`);
+          return { valid: true, value };
+      }
+    }
+    
+    // Validate and sanitize all data before storage
+    validateAndSanitize(data) {
+      const validated = {};
+      const errors = [];
+      
+      for (const [key, value] of Object.entries(data)) {
+        const rule = this.validationRules[key];
+        
+        if (rule) {
+          const result = this.validateValue(key, value, rule);
+          
+          if (!result.valid) {
+            errors.push(result.error || `Invalid value for ${key}`);
+            // Use corrected value if available, otherwise skip
+            if (result.value !== undefined) {
+              validated[key] = result.value;
+            }
+          } else {
+            validated[key] = result.value;
+          }
+        } else {
+          // Unknown key - log warning but allow it
+          console.warn(`Unknown setting key: ${key}`);
+          validated[key] = value;
+        }
+      }
+      
+      if (errors.length > 0) {
+        console.warn('Validation warnings:', errors);
+      }
+      
+      return { data: validated, errors };
+    }
+
+    // Measure and log performance of storage operations
+    async measureOperation(operationName, operation) {
+      const startTime = performance.now();
+      const startMark = `storage-${operationName}-start-${Date.now()}`;
+      const endMark = `storage-${operationName}-end-${Date.now()}`;
+      
+      performance.mark(startMark);
+      
+      try {
+        const result = await operation();
+        const endTime = performance.now();
+        performance.mark(endMark);
+        
+        const duration = endTime - startTime;
+        performance.measure(`storage-${operationName}`, startMark, endMark);
+        
+        // Store metrics for monitoring
+        if (!this.performanceMetrics.has(operationName)) {
+          this.performanceMetrics.set(operationName, []);
+        }
+        this.performanceMetrics.get(operationName).push(duration);
+        
+        // Log if operation exceeds 100ms threshold
+        if (duration > 100) {
+          console.warn(`Storage operation "${operationName}" took ${duration.toFixed(2)}ms (exceeds 100ms threshold)`);
+        }
+        
+        return result;
+      } catch (error) {
+        performance.mark(endMark);
+        performance.measure(`storage-${operationName}-failed`, startMark, endMark);
+        throw error;
+      }
+    }
+
+    // Set data with validation and automatic fallback
+    async set(data) {
+      // Rate limiting check
+      const now = Date.now();
+      const timeSinceLastOp = now - this.lastStorageOperation;
+      if (timeSinceLastOp < this.minOperationInterval) {
+        const waitTime = this.minOperationInterval - timeSinceLastOp;
+        console.warn(`Rate limiting: waiting ${waitTime}ms before storage operation`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+      this.lastStorageOperation = Date.now();
+      
+      return this.measureOperation('set', async () => {
+        // Validate and sanitize data before storage
+        const { data: validatedData, errors } = this.validateAndSanitize(data);
+        
+        if (errors.length > 0) {
+          console.warn('Data validation warnings during storage:', errors);
+        }
+        
+        // Ensure we're not storing excessive data
+        const dataSize = JSON.stringify(validatedData).length;
+        if (dataSize > 8192) { // Chrome sync storage has 8KB limit per item
+          console.warn(`Large data size (${dataSize} bytes), may exceed storage limits`);
+        }
+        
+        try {
+          if (!this.syncQuotaExceeded) {
+            await chrome.storage.sync.set(validatedData);
+            return { storage: 'sync', success: true, validated: true };
+          } else {
+            throw new Error('Sync quota exceeded, using local storage');
+          }
+        } catch (error) {
+          // Check if it's a quota error
+          if (error.message && (error.message.includes('QUOTA') || error.message.includes('quota'))) {
+            this.syncQuotaExceeded = true;
+            console.warn('Chrome sync storage quota exceeded, falling back to local storage');
+          }
+          
+          // Fallback to local storage
+          try {
+            await chrome.storage.local.set(validatedData);
+            return { storage: 'local', success: true, fallback: true, validated: true };
+          } catch (localError) {
+            console.error('Failed to save to both sync and local storage:', localError);
+            throw localError;
+          }
+        }
+      });
+    }
+
+    // Get data with automatic fallback
+    async get(keys) {
+      return this.measureOperation('get', async () => {
+        try {
+          // Try sync storage first
+          const syncData = await chrome.storage.sync.get(keys);
+          
+          // If we have data, return it
+          if (syncData && Object.keys(syncData).length > 0) {
+            return syncData;
+          }
+          
+          // Otherwise try local storage
+          const localData = await chrome.storage.local.get(keys);
+          return localData;
+        } catch (error) {
+          console.error('Failed to retrieve storage data:', error);
+          // Return default values if keys is an object with defaults
+          if (typeof keys === 'object' && !Array.isArray(keys)) {
+            return keys;
+          }
+          return {};
+        }
+      });
+    }
+
+    // Clear specific keys from both storages
+    async remove(keys) {
+      return this.measureOperation('remove', async () => {
+        const results = await Promise.allSettled([
+          chrome.storage.sync.remove(keys),
+          chrome.storage.local.remove(keys)
+        ]);
+        
+        return {
+          sync: results[0].status === 'fulfilled',
+          local: results[1].status === 'fulfilled'
+        };
+      });
+    }
+
+    // Get performance report
+    getPerformanceReport() {
+      const report = {};
+      for (const [operation, times] of this.performanceMetrics) {
+        const sorted = times.sort((a, b) => a - b);
+        report[operation] = {
+          count: times.length,
+          min: Math.min(...times).toFixed(2),
+          max: Math.max(...times).toFixed(2),
+          avg: (times.reduce((a, b) => a + b, 0) / times.length).toFixed(2),
+          median: sorted[Math.floor(sorted.length / 2)].toFixed(2),
+          exceeds100ms: times.filter(t => t > 100).length
+        };
+      }
+      return report;
+    }
+  }
+
+  // Create global storage service instance
+  const storageService = new StorageService();
+
   // Main namespace object for state management
   const TeXForGmail = {
     observer: null,
@@ -49,16 +387,27 @@
     serverPreference: 'codecogs', // Current server preference
     serverSwitchMutex: false, // Mutex to prevent concurrent server switches
     serverSwitchTimestamp: 0, // Track last switch time
+    settings: null, // Cached settings from chrome.storage
+    settingsLoadPromise: null, // Promise for settings loading
     init() {
       console.log('🚀 TeX for Gmail: Extension initializing...');
       this.log('Extension initialized');
       
-      // Load server preference from sessionStorage
+      // Load settings from chrome.storage
+      this.loadSettings();
+      
+      // Load server preference from sessionStorage (for backward compatibility)
       try {
         const savedPreference = sessionStorage.getItem('tex-gmail-server-preference');
         if (savedPreference && ['codecogs', 'wordpress'].includes(savedPreference)) {
           this.serverPreference = savedPreference;
           this.log('Loaded server preference:', savedPreference);
+          // Migrate to chrome.storage
+          if (this.settings) {
+            this.settings.renderServer = savedPreference;
+            storageService.set({ renderServer: savedPreference });
+            sessionStorage.removeItem('tex-gmail-server-preference');
+          }
         }
       } catch (e) {
         // Silently fail if sessionStorage is not available
@@ -91,6 +440,44 @@
       // Add current timestamp
       this.apiCallTimes.push(now);
       return true;
+    },
+    // Load settings from chrome.storage
+    async loadSettings() {
+      const defaultSettings = {
+        sendBehavior: 'ask',
+        renderServer: 'codecogs',
+        dpiInline: 200,
+        dpiDisplay: 300,
+        simpleMathFontOutgoing: 'serif',
+        simpleMathFontIncoming: 'serif',
+        showComposeButton: true,
+        showReadButton: true,
+        enableKeyboardShortcuts: true,
+        rememberSendChoice: false,
+        lastSendChoice: null
+      };
+      
+      if (!this.settingsLoadPromise) {
+        this.settingsLoadPromise = new Promise(async (resolve) => {
+          const settings = await storageService.get(defaultSettings);
+          this.settings = settings;
+          // Update CONFIG with settings
+          if (settings.dpiInline) CONFIG.dpi.inline = settings.dpiInline;
+          if (settings.dpiDisplay) CONFIG.dpi.display = settings.dpiDisplay;
+          if (settings.renderServer) this.serverPreference = settings.renderServer;
+          this.log('Settings loaded:', settings);
+          resolve(settings);
+        });
+      }
+      
+      return this.settingsLoadPromise;
+    },
+    // Get current settings (with fallback)
+    async getSettings() {
+      if (!this.settings) {
+        await this.loadSettings();
+      }
+      return this.settings;
     }
   };
 
@@ -2056,7 +2443,14 @@
   }
 
   // Add TeX button to compose window
-  function addTexButton(composeElement) {
+  async function addTexButton(composeElement) {
+    // Check settings for button visibility
+    const settings = await TeXForGmail.getSettings();
+    if (!settings.showComposeButton) {
+      TeXForGmail.log('Compose button disabled in settings');
+      return;
+    }
+    
     // Find the toolbar - multiple possible selectors
     const toolbarSelectors = [
       '.aZ .J-J5-Ji',
@@ -2176,6 +2570,193 @@
     this.setupSendInterceptor();
   };
   
+  // Send behavior dialog functions
+  function createSendDialog() {
+    // Check if dialog already exists
+    if (document.getElementById('tex-gmail-send-dialog')) {
+      return document.getElementById('tex-gmail-send-dialog');
+    }
+    
+    // Create dialog container
+    const dialog = document.createElement('div');
+    dialog.id = 'tex-gmail-send-dialog';
+    dialog.style.cssText = `
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 24px 38px 3px rgba(0,0,0,0.14), 0 9px 46px 8px rgba(0,0,0,0.12), 0 11px 15px -7px rgba(0,0,0,0.2);
+      z-index: 9999;
+      padding: 24px;
+      min-width: 400px;
+      max-width: 500px;
+      display: none;
+      font-family: 'Roboto', 'Google Sans', Arial, sans-serif;
+    `;
+    
+    // Create dialog content
+    dialog.innerHTML = `
+      <div style="margin-bottom: 20px;">
+        <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 400; color: #202124;">
+          LaTeX Rendering
+        </h2>
+        <p style="margin: 0; color: #5f6368; font-size: 14px; line-height: 20px;">
+          Your email contains LaTeX equations. Would you like to render them as images before sending?
+        </p>
+        <div style="margin-top: 12px; padding: 12px; background: #f8f9fa; border-radius: 4px;">
+          <p style="margin: 0; color: #5f6368; font-size: 12px;">
+            <strong>Note:</strong> Rendering will convert LaTeX code into images that all recipients can view.
+          </p>
+        </div>
+      </div>
+      
+      <div style="margin: 20px 0; padding: 12px 0; border-top: 1px solid #e8eaed;">
+        <label style="display: flex; align-items: center; cursor: pointer; font-size: 14px; color: #5f6368;">
+          <input type="checkbox" id="tex-gmail-remember-choice" style="margin-right: 8px; cursor: pointer;">
+          Remember my choice for this session
+        </label>
+      </div>
+      
+      <div style="display: flex; justify-content: flex-end; gap: 8px;">
+        <button id="tex-gmail-cancel-send" style="
+          padding: 8px 16px;
+          border: 1px solid #dadce0;
+          background: white;
+          color: #5f6368;
+          border-radius: 4px;
+          font-size: 14px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.2s;
+        ">Cancel</button>
+        <button id="tex-gmail-send-without-render" style="
+          padding: 8px 16px;
+          border: 1px solid #dadce0;
+          background: white;
+          color: #202124;
+          border-radius: 4px;
+          font-size: 14px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.2s;
+        ">Send without rendering</button>
+        <button id="tex-gmail-render-and-send" style="
+          padding: 8px 16px;
+          border: none;
+          background: #1a73e8;
+          color: white;
+          border-radius: 4px;
+          font-size: 14px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.2s;
+        ">Render and Send</button>
+      </div>
+    `;
+    
+    // Create backdrop
+    const backdrop = document.createElement('div');
+    backdrop.id = 'tex-gmail-dialog-backdrop';
+    backdrop.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 9998;
+      display: none;
+    `;
+    
+    // Add hover effects
+    const style = document.createElement('style');
+    style.textContent = `
+      #tex-gmail-render-and-send:hover {
+        background: #1557b0 !important;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+      }
+      #tex-gmail-send-without-render:hover,
+      #tex-gmail-cancel-send:hover {
+        background: #f8f9fa !important;
+        border-color: #9aa0a6 !important;
+      }
+      #tex-gmail-send-dialog button:focus {
+        outline: 2px solid #1a73e8;
+        outline-offset: 2px;
+      }
+    `;
+    document.head.appendChild(style);
+    
+    // Append to body
+    document.body.appendChild(backdrop);
+    document.body.appendChild(dialog);
+    
+    return dialog;
+  }
+  
+  function showSendDialog() {
+    return new Promise((resolve) => {
+      const dialog = createSendDialog();
+      const backdrop = document.getElementById('tex-gmail-dialog-backdrop');
+      
+      // Show dialog and backdrop
+      dialog.style.display = 'block';
+      backdrop.style.display = 'block';
+      
+      // Focus on render button for accessibility
+      const renderButton = document.getElementById('tex-gmail-render-and-send');
+      renderButton.focus();
+      
+      // Handle button clicks
+      const cancelButton = document.getElementById('tex-gmail-cancel-send');
+      const sendWithoutButton = document.getElementById('tex-gmail-send-without-render');
+      const renderAndSendButton = document.getElementById('tex-gmail-render-and-send');
+      const rememberCheckbox = document.getElementById('tex-gmail-remember-choice');
+      
+      // Clean up function
+      const cleanup = () => {
+        dialog.style.display = 'none';
+        backdrop.style.display = 'none';
+        // Remove event listeners
+        cancelButton.removeEventListener('click', handleCancel);
+        sendWithoutButton.removeEventListener('click', handleSendWithout);
+        renderAndSendButton.removeEventListener('click', handleRenderAndSend);
+        document.removeEventListener('keydown', handleEscape);
+      };
+      
+      const handleCancel = () => {
+        cleanup();
+        resolve({ action: 'cancel', remember: rememberCheckbox.checked });
+      };
+      
+      const handleSendWithout = () => {
+        cleanup();
+        resolve({ action: 'send_without_render', remember: rememberCheckbox.checked });
+      };
+      
+      const handleRenderAndSend = () => {
+        cleanup();
+        resolve({ action: 'render_and_send', remember: rememberCheckbox.checked });
+      };
+      
+      const handleEscape = (e) => {
+        if (e.key === 'Escape') {
+          handleCancel();
+        } else if (e.key === 'Enter' && !e.shiftKey) {
+          handleRenderAndSend();
+        }
+      };
+      
+      // Attach event listeners
+      cancelButton.addEventListener('click', handleCancel);
+      sendWithoutButton.addEventListener('click', handleSendWithout);
+      renderAndSendButton.addEventListener('click', handleRenderAndSend);
+      document.addEventListener('keydown', handleEscape);
+    });
+  }
+
   // Fixed send interceptor with all critical bugs resolved
   TeXForGmail.setupSendInterceptor = function() {
     // Track programmatic clicks to prevent infinite recursion
@@ -2315,16 +2896,86 @@
       
       // Process send interception if needed
       if (shouldIntercept && composeArea) {
-        // Check if toggle is OFF and there's LaTeX content
-        const currentState = getToggleState(composeArea);
+        // Check if there's LaTeX content
         const hasLatex = /\$[^$\n]+\$|\$\$[^$\n]+\$\$/.test(composeArea.textContent);
         
-        if (!currentState && hasLatex) {
-          TeXForGmail.log('Intercepting send to render LaTeX (toggle is OFF)');
+        if (hasLatex) {
+          // Get current settings
+          const settings = await TeXForGmail.getSettings();
+          const currentState = getToggleState(composeArea);
           
-          // Prevent the original send
-          event.preventDefault();
-          event.stopImmediatePropagation();
+          // Determine what to do based on settings and toggle state
+          let shouldRender = false;
+          let userChoice = null;
+          
+          if (currentState) {
+            // Toggle is ON, LaTeX already rendered, allow normal send
+            TeXForGmail.log('LaTeX already rendered (toggle is ON), allowing normal send');
+            return;
+          }
+          
+          // Toggle is OFF, check send behavior setting
+          if (settings.sendBehavior === 'always') {
+            shouldRender = true;
+            TeXForGmail.log('Send behavior is "always", will render LaTeX');
+          } else if (settings.sendBehavior === 'never') {
+            shouldRender = false;
+            TeXForGmail.log('Send behavior is "never", sending without rendering');
+            return; // Allow send to proceed without rendering
+          } else if (settings.sendBehavior === 'ask') {
+            // Check if we have a remembered choice for this session
+            if (settings.rememberSendChoice && settings.lastSendChoice) {
+              shouldRender = settings.lastSendChoice === 'render';
+              TeXForGmail.log(`Using remembered choice: ${settings.lastSendChoice}`);
+            } else {
+              // Show dialog to ask user
+              TeXForGmail.log('Send behavior is "ask", showing dialog');
+              
+              // Prevent the original send
+              event.preventDefault();
+              event.stopImmediatePropagation();
+              
+              // Show dialog and wait for user choice
+              userChoice = await showSendDialog();
+              
+              // Handle user choice
+              if (userChoice.action === 'cancel') {
+                TeXForGmail.log('User cancelled send');
+                return;
+              } else if (userChoice.action === 'send_without_render') {
+                shouldRender = false;
+                if (userChoice.remember) {
+                  // Remember choice for this session
+                  settings.rememberSendChoice = true;
+                  settings.lastSendChoice = 'send_without';
+                  storageService.set({
+                    rememberSendChoice: true,
+                    lastSendChoice: 'send_without'
+                  });
+                }
+              } else if (userChoice.action === 'render_and_send') {
+                shouldRender = true;
+                if (userChoice.remember) {
+                  // Remember choice for this session
+                  settings.rememberSendChoice = true;
+                  settings.lastSendChoice = 'render';
+                  storageService.set({
+                    rememberSendChoice: true,
+                    lastSendChoice: 'render'
+                  });
+                }
+              }
+            }
+          }
+          
+          if (shouldRender) {
+            TeXForGmail.log('Intercepting send to render LaTeX');
+            
+            // Prevent the original send if not already prevented
+            if (!userChoice) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+            }
           
           // Check if already processing this compose area
           if (!TeXForGmail.sendProcessingStates) {
@@ -2393,29 +3044,82 @@
               }, 500);
             }
           }
-        } else if (currentState && hasLatex) {
-          TeXForGmail.log('LaTeX already rendered (toggle is ON), allowing normal send');
+            } else if (!shouldRender && userChoice && userChoice.action === 'send_without_render') {
+              // User chose to send without rendering
+              programmaticSendInProgress = true;
+              
+              if (sendButton) {
+                // Use a new click event to trigger send
+                const newClickEvent = new MouseEvent('click', {
+                  bubbles: true,
+                  cancelable: true,
+                  view: window,
+                  buttons: 1
+                });
+                sendButton.dispatchEvent(newClickEvent);
+              } else if (isKeyboard) {
+                // For keyboard shortcut, find and click the send button
+                const sendButtons = composeArea.closest('.M9, .AD, .aoI')
+                  ?.querySelectorAll('[data-tooltip*="Send"], [aria-label*="Send"]');
+                if (sendButtons && sendButtons.length > 0) {
+                  sendButtons[0].click();
+                }
+              }
+              
+              setTimeout(() => {
+                programmaticSendInProgress = false;
+              }, 1000);
+            }
+          }
         }
       }
     };
     
     // Listen for both click and keyboard events
+    // Store references for cleanup
+    TeXForGmail.sendInterceptorClick = interceptSend;
+    TeXForGmail.sendInterceptorKeydown = interceptSend;
     document.addEventListener('click', interceptSend, true);
     document.addEventListener('keydown', interceptSend, true);
     
     TeXForGmail.log('Send interceptor initialized (click and keyboard)');
   };
 
-  // Clean up on page unload
-  window.addEventListener('beforeunload', () => {
+  // Comprehensive cleanup function
+  TeXForGmail.cleanup = function() {
+    // Disconnect main observer
     if (TeXForGmail.observer) {
       TeXForGmail.observer.disconnect();
       TeXForGmail.log('Main observer disconnected');
     }
     
-    // Disconnect all content observers
+    // Remove send interceptor listeners
+    if (TeXForGmail.sendInterceptorClick) {
+      document.removeEventListener('click', TeXForGmail.sendInterceptorClick, true);
+      TeXForGmail.sendInterceptorClick = null;
+    }
+    if (TeXForGmail.sendInterceptorKeydown) {
+      document.removeEventListener('keydown', TeXForGmail.sendInterceptorKeydown, true);
+      TeXForGmail.sendInterceptorKeydown = null;
+    }
+    
+    // Remove chrome storage listener
+    if (TeXForGmail.storageChangeListener) {
+      chrome.storage.onChanged.removeListener(TeXForGmail.storageChangeListener);
+      TeXForGmail.storageChangeListener = null;
+    }
+    
+    // Clean up all button event listeners
+    document.querySelectorAll('.tex-toggle-button').forEach(button => {
+      // Clone and replace to remove all event listeners
+      const newButton = button.cloneNode(true);
+      if (button.parentNode) {
+        button.parentNode.replaceChild(newButton, button);
+      }
+    });
+    
+    // Disconnect all content observers (WeakMap doesn't have iteration, but observers will be GC'd)
     if (TeXForGmail.composeObservers) {
-      // Note: WeakMap doesn't have iteration, but observers will be GC'd
       TeXForGmail.composeObservers = new WeakMap();
     }
     
@@ -2431,6 +3135,16 @@
     TeXForGmail.composeButtons = new WeakMap();
     TeXForGmail.processingStates = new WeakMap();
     TeXForGmail.toggleStates = new WeakMap();
+    TeXForGmail.originalContent = new WeakMap();
+    TeXForGmail.sendProcessingStates = new WeakMap();
+    TeXForGmail.observerSetupFlags = new WeakMap();
+    
+    TeXForGmail.log('Comprehensive cleanup completed');
+  };
+
+  // Clean up on page unload
+  window.addEventListener('beforeunload', () => {
+    TeXForGmail.cleanup();
   });
   
   // Also clean up on navigation (single-page app navigation)
@@ -2441,6 +3155,40 @@
     composeAreas.forEach(composeArea => {
       performComprehensiveCleanup(composeArea);
     });
+  });
+
+  // Listen for settings changes from options page
+  TeXForGmail.storageChangeListener = (changes, areaName) => {
+    if (areaName === 'sync' || areaName === 'local') {
+      // Update cached settings
+      for (const key in changes) {
+        if (TeXForGmail.settings) {
+          TeXForGmail.settings[key] = changes[key].newValue;
+        }
+      }
+      
+      // Apply relevant changes immediately
+      if (changes.dpiInline) {
+        CONFIG.dpi.inline = changes.dpiInline.newValue;
+      }
+      if (changes.dpiDisplay) {
+        CONFIG.dpi.display = changes.dpiDisplay.newValue;
+      }
+      if (changes.renderServer) {
+        TeXForGmail.serverPreference = changes.renderServer.newValue;
+      }
+      
+      TeXForGmail.log('Settings updated from options page:', changes);
+    }
+  };
+  chrome.storage.onChanged.addListener(TeXForGmail.storageChangeListener);
+  
+  // Listen for messages from options page
+  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.type === 'SETTINGS_UPDATED') {
+      TeXForGmail.settings = request.settings;
+      TeXForGmail.log('Settings updated via message:', request.settings);
+    }
   });
 
   // Initialize when DOM is ready
