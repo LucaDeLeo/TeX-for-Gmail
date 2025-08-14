@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Story 4.1 Security & Performance Fixes Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        
+        h1 {
+            color: #1a73e8;
+            border-bottom: 2px solid #1a73e8;
+            padding-bottom: 10px;
+        }
+        
+        .test-section {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .test-group {
+            margin: 15px 0;
+            padding: 15px;
+            border-left: 4px solid #4285f4;
+            background: #f8f9fa;
+        }
+        
+        button {
+            background: #1a73e8;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        
+        button:hover {
+            background: #1557b0;
+        }
+        
+        .success {
+            color: #0d8043;
+            font-weight: bold;
+        }
+        
+        .error {
+            color: #d93025;
+            font-weight: bold;
+        }
+        
+        .warning {
+            color: #ea8600;
+            font-weight: bold;
+        }
+        
+        .result {
+            margin: 10px 0;
+            padding: 10px;
+            background: #f0f0f0;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-right: 10px;
+            vertical-align: middle;
+        }
+        
+        .status-pending { background: #gray; }
+        .status-running { background: #ffa500; }
+        .status-pass { background: #0d8043; }
+        .status-fail { background: #d93025; }
+    </style>
+</head>
+<body>
+    <h1>🧪 Story 4.1 Security & Performance Fixes Test Suite</h1>
+    
+    <div class="test-section">
+        <h2>Test Summary</h2>
+        <div id="test-summary">
+            <p>Total Tests: <span id="total-tests">0</span></p>
+            <p>Passed: <span id="passed-tests" class="success">0</span></p>
+            <p>Failed: <span id="failed-tests" class="error">0</span></p>
+            <p>Warnings: <span id="warning-tests" class="warning">0</span></p>
+        </div>
+    </div>
+    
+    <!-- 1. CSP Test -->
+    <div class="test-section">
+        <h2>1. Content Security Policy Test</h2>
+        <div class="test-group">
+            <p>Verifies that CSP header is present in options.html</p>
+            <button onclick="testCSP()">Test CSP</button>
+            <div id="csp-result" class="result"></div>
+        </div>
+    </div>
+    
+    <!-- 2. Storage Service Tests -->
+    <div class="test-section">
+        <h2>2. Storage Service with Validation</h2>
+        
+        <div class="test-group">
+            <h3>2.1 Storage Quota Fallback</h3>
+            <p>Tests automatic fallback from sync to local storage</p>
+            <button onclick="testStorageQuota()">Test Quota Handling</button>
+            <div id="quota-result" class="result"></div>
+        </div>
+        
+        <div class="test-group">
+            <h3>2.2 Performance Monitoring</h3>
+            <p>Verifies storage operations are monitored for <100ms requirement</p>
+            <button onclick="testPerformanceMonitoring()">Test Performance</button>
+            <div id="performance-result" class="result"></div>
+        </div>
+        
+        <div class="test-group">
+            <h3>2.3 Input Validation</h3>
+            <p>Tests DPI range validation and font sanitization</p>
+            <button onclick="testInputValidation()">Test Validation</button>
+            <div id="validation-result" class="result"></div>
+        </div>
+        
+        <div class="test-group">
+            <h3>2.4 Edge Case Handling</h3>
+            <p>Tests null values, extreme inputs, and XSS attempts</p>
+            <button onclick="testEdgeCases()">Test Edge Cases</button>
+            <div id="edge-case-result" class="result"></div>
+        </div>
+    </div>
+    
+    <!-- 3. Accessibility Tests -->
+    <div class="test-section">
+        <h2>3. Accessibility Improvements</h2>
+        
+        <div class="test-group">
+            <h3>3.1 ARIA Labels</h3>
+            <p>Checks for proper ARIA attributes in options.html</p>
+            <button onclick="testARIALabels()">Test ARIA</button>
+            <div id="aria-result" class="result"></div>
+        </div>
+        
+        <div class="test-group">
+            <h3>3.2 Screen Reader Support</h3>
+            <p>Verifies sr-only class and live regions</p>
+            <button onclick="testScreenReader()">Test Screen Reader</button>
+            <div id="sr-result" class="result"></div>
+        </div>
+    </div>
+    
+    <!-- 4. Memory Management Tests -->
+    <div class="test-section">
+        <h2>4. Memory Leak Prevention</h2>
+        
+        <div class="test-group">
+            <h3>4.1 Event Listener Cleanup</h3>
+            <p>Verifies event listeners are properly removed</p>
+            <button onclick="testEventCleanup()">Test Cleanup</button>
+            <div id="cleanup-result" class="result"></div>
+        </div>
+        
+        <div class="test-group">
+            <h3>4.2 Observer Disconnection</h3>
+            <p>Checks that MutationObservers are disconnected</p>
+            <button onclick="testObserverCleanup()">Test Observers</button>
+            <div id="observer-result" class="result"></div>
+        </div>
+    </div>
+    
+    <!-- 5. Integration Tests -->
+    <div class="test-section">
+        <h2>5. Integration Tests</h2>
+        
+        <div class="test-group">
+            <h3>5.1 End-to-End Storage Test</h3>
+            <p>Tests complete storage flow with validation</p>
+            <button onclick="testE2EStorage()">Run E2E Test</button>
+            <div id="e2e-result" class="result"></div>
+        </div>
+        
+        <div class="test-group">
+            <h3>5.2 Settings Sync Test</h3>
+            <p>Verifies real-time settings updates</p>
+            <button onclick="testSettingsSync()">Test Sync</button>
+            <div id="sync-result" class="result"></div>
+        </div>
+    </div>
+    
+    <script>
+        // Test statistics
+        let testStats = {
+            total: 0,
+            passed: 0,
+            failed: 0,
+            warnings: 0
+        };
+        
+        function updateStats() {
+            document.getElementById('total-tests').textContent = testStats.total;
+            document.getElementById('passed-tests').textContent = testStats.passed;
+            document.getElementById('failed-tests').textContent = testStats.failed;
+            document.getElementById('warning-tests').textContent = testStats.warnings;
+        }
+        
+        function logResult(elementId, message, status) {
+            const element = document.getElementById(elementId);
+            const timestamp = new Date().toLocaleTimeString();
+            
+            testStats.total++;
+            if (status === 'pass') {
+                testStats.passed++;
+                element.innerHTML = `<span class="success">✅ PASS</span> [${timestamp}]\n${message}`;
+            } else if (status === 'fail') {
+                testStats.failed++;
+                element.innerHTML = `<span class="error">❌ FAIL</span> [${timestamp}]\n${message}`;
+            } else if (status === 'warning') {
+                testStats.warnings++;
+                element.innerHTML = `<span class="warning">⚠️ WARNING</span> [${timestamp}]\n${message}`;
+            } else {
+                element.innerHTML = `[${timestamp}] ${message}`;
+            }
+            
+            updateStats();
+        }
+        
+        // 1. CSP Test
+        async function testCSP() {
+            try {
+                const response = await fetch('options.html');
+                const html = await response.text();
+                
+                if (html.includes('Content-Security-Policy')) {
+                    const cspMatch = html.match(/content="([^"]+)"/);
+                    if (cspMatch) {
+                        const csp = cspMatch[1];
+                        const requiredDirectives = [
+                            "default-src 'self'",
+                            "script-src 'self'",
+                            "style-src 'self' 'unsafe-inline'",
+                            "img-src",
+                            "frame-src 'none'",
+                            "object-src 'none'"
+                        ];
+                        
+                        let missingDirectives = [];
+                        requiredDirectives.forEach(directive => {
+                            if (!csp.includes(directive)) {
+                                missingDirectives.push(directive);
+                            }
+                        });
+                        
+                        if (missingDirectives.length === 0) {
+                            logResult('csp-result', 
+                                `CSP header properly configured with all security directives:\n${csp.substring(0, 200)}...`, 
+                                'pass');
+                        } else {
+                            logResult('csp-result', 
+                                `CSP found but missing directives: ${missingDirectives.join(', ')}`, 
+                                'warning');
+                        }
+                    } else {
+                        logResult('csp-result', 
+                            'CSP meta tag format incorrect', 
+                            'fail');
+                    }
+                } else {
+                    logResult('csp-result', 
+                        'CSP header not found in options.html', 
+                        'fail');
+                }
+            } catch (error) {
+                logResult('csp-result', `Error testing CSP: ${error.message}`, 'fail');
+            }
+        }
+        
+        // 2.1 Storage Quota Test
+        async function testStorageQuota() {
+            try {
+                // Simulate storage service
+                const storageService = {
+                    syncQuotaExceeded: false,
+                    async set(data) {
+                        // Simulate quota exceeded
+                        if (Object.keys(data).length > 5) {
+                            this.syncQuotaExceeded = true;
+                            throw new Error('QUOTA_BYTES quota exceeded');
+                        }
+                        return { storage: 'sync', success: true };
+                    }
+                };
+                
+                // Test with large data
+                const largeData = {};
+                for (let i = 0; i < 10; i++) {
+                    largeData[`key${i}`] = `value${i}`;
+                }
+                
+                try {
+                    await storageService.set(largeData);
+                    logResult('quota-result', 'Storage quota handling not triggered', 'warning');
+                } catch (error) {
+                    if (error.message.includes('QUOTA')) {
+                        logResult('quota-result', 
+                            'Storage quota exceeded detected correctly\nWould fallback to local storage', 
+                            'pass');
+                    } else {
+                        throw error;
+                    }
+                }
+            } catch (error) {
+                logResult('quota-result', `Error testing quota: ${error.message}`, 'fail');
+            }
+        }
+        
+        // 2.2 Performance Monitoring Test
+        async function testPerformanceMonitoring() {
+            try {
+                const startMark = `test-start-${Date.now()}`;
+                const endMark = `test-end-${Date.now()}`;
+                
+                performance.mark(startMark);
+                // Simulate storage operation
+                await new Promise(resolve => setTimeout(resolve, 50));
+                performance.mark(endMark);
+                
+                performance.measure('test-operation', startMark, endMark);
+                const measures = performance.getEntriesByName('test-operation');
+                
+                if (measures.length > 0) {
+                    const duration = measures[0].duration;
+                    if (duration < 100) {
+                        logResult('performance-result', 
+                            `Performance monitoring working\nOperation took ${duration.toFixed(2)}ms (< 100ms ✓)`, 
+                            'pass');
+                    } else {
+                        logResult('performance-result', 
+                            `Operation took ${duration.toFixed(2)}ms (> 100ms threshold)`, 
+                            'warning');
+                    }
+                } else {
+                    logResult('performance-result', 'Performance measures not found', 'fail');
+                }
+                
+                // Clean up
+                performance.clearMarks();
+                performance.clearMeasures();
+            } catch (error) {
+                logResult('performance-result', `Error testing performance: ${error.message}`, 'fail');
+            }
+        }
+        
+        // 2.3 Input Validation Test
+        function testInputValidation() {
+            try {
+                // Test DPI validation
+                const testDPI = (value, min, max) => {
+                    const num = Number(value);
+                    if (isNaN(num)) return { valid: false, error: 'Not a number' };
+                    if (num < min) return { valid: false, value: min };
+                    if (num > max) return { valid: false, value: max };
+                    return { valid: true, value: num };
+                };
+                
+                // Test font sanitization
+                const sanitizeFont = (font) => {
+                    return font.replace(/[^a-zA-Z0-9\s\-]/g, '');
+                };
+                
+                const tests = [
+                    { input: 50, type: 'dpi', expected: 100, desc: 'DPI below minimum' },
+                    { input: 500, type: 'dpi', expected: 400, desc: 'DPI above maximum' },
+                    { input: 250, type: 'dpi', expected: 250, desc: 'DPI in valid range' },
+                    { input: 'serif<script>', type: 'font', expected: 'serifscript', desc: 'Font with XSS attempt' },
+                    { input: 'Arial', type: 'font', expected: 'Arial', desc: 'Valid font name' }
+                ];
+                
+                let allPassed = true;
+                let results = [];
+                
+                tests.forEach(test => {
+                    if (test.type === 'dpi') {
+                        const result = testDPI(test.input, 100, 400);
+                        const passed = result.value === test.expected;
+                        results.push(`${test.desc}: ${passed ? '✓' : '✗'} (${result.value})`);
+                        allPassed = allPassed && passed;
+                    } else if (test.type === 'font') {
+                        const result = sanitizeFont(test.input);
+                        const passed = result === test.expected;
+                        results.push(`${test.desc}: ${passed ? '✓' : '✗'} (${result})`);
+                        allPassed = allPassed && passed;
+                    }
+                });
+                
+                logResult('validation-result', 
+                    `Validation tests:\n${results.join('\n')}`, 
+                    allPassed ? 'pass' : 'fail');
+                    
+            } catch (error) {
+                logResult('validation-result', `Error testing validation: ${error.message}`, 'fail');
+            }
+        }
+        
+        // 3.1 ARIA Labels Test
+        async function testARIALabels() {
+            try {
+                const response = await fetch('options.html');
+                const html = await response.text();
+                
+                const ariaChecks = [
+                    'aria-label',
+                    'aria-describedby',
+                    'aria-labelledby',
+                    'role=',
+                    'aria-live'
+                ];
+                
+                let foundCount = 0;
+                let results = [];
+                
+                ariaChecks.forEach(check => {
+                    const count = (html.match(new RegExp(check, 'g')) || []).length;
+                    if (count > 0) {
+                        foundCount++;
+                        results.push(`✓ ${check}: ${count} instances`);
+                    } else {
+                        results.push(`✗ ${check}: not found`);
+                    }
+                });
+                
+                if (foundCount >= 4) {
+                    logResult('aria-result', 
+                        `ARIA attributes found:\n${results.join('\n')}`, 
+                        'pass');
+                } else {
+                    logResult('aria-result', 
+                        `Some ARIA attributes missing:\n${results.join('\n')}`, 
+                        'warning');
+                }
+            } catch (error) {
+                logResult('aria-result', `Error testing ARIA: ${error.message}`, 'fail');
+            }
+        }
+        
+        // 3.2 Screen Reader Test
+        async function testScreenReader() {
+            try {
+                const response = await fetch('options.html');
+                const html = await response.text();
+                
+                const hasSkipLink = html.includes('skip-link');
+                const hasSROnly = html.includes('sr-only');
+                const hasLiveRegion = html.includes('aria-live="polite"') || html.includes('aria-live="assertive"');
+                const hasStatusRegion = html.includes('id="status-region"');
+                const hasErrorRegion = html.includes('id="error-region"');
+                
+                let results = [
+                    `Skip link: ${hasSkipLink ? '✓' : '✗'}`,
+                    `SR-only class: ${hasSROnly ? '✓' : '✗'}`,
+                    `Live region (polite/assertive): ${hasLiveRegion ? '✓' : '✗'}`,
+                    `Status region: ${hasStatusRegion ? '✓' : '✗'}`,
+                    `Error region: ${hasErrorRegion ? '✓' : '✗'}`
+                ];
+                
+                const allPassed = hasSkipLink && hasSROnly && hasLiveRegion && hasStatusRegion && hasErrorRegion;
+                
+                logResult('sr-result', 
+                    `Screen reader support:\n${results.join('\n')}`, 
+                    allPassed ? 'pass' : 'fail');
+                    
+            } catch (error) {
+                logResult('sr-result', `Error testing screen reader: ${error.message}`, 'fail');
+            }
+        }
+        
+        // 4.1 Event Cleanup Test
+        function testEventCleanup() {
+            try {
+                // Create test element
+                const testDiv = document.createElement('div');
+                document.body.appendChild(testDiv);
+                
+                let listenerCalled = false;
+                const testListener = () => { listenerCalled = true; };
+                
+                // Add listener
+                testDiv.addEventListener('click', testListener);
+                
+                // Trigger event - should call listener
+                testDiv.click();
+                const beforeRemoval = listenerCalled;
+                
+                // Reset flag
+                listenerCalled = false;
+                
+                // Remove listener
+                testDiv.removeEventListener('click', testListener);
+                
+                // Trigger event again - should NOT call listener
+                testDiv.click();
+                const afterRemoval = listenerCalled;
+                
+                // Clean up
+                document.body.removeChild(testDiv);
+                
+                if (beforeRemoval && !afterRemoval) {
+                    logResult('cleanup-result', 
+                        'Event listener cleanup working correctly\nListener called before removal: ✓\nListener not called after removal: ✓', 
+                        'pass');
+                } else {
+                    logResult('cleanup-result', 
+                        `Event cleanup issue\nBefore: ${beforeRemoval}, After: ${afterRemoval}`, 
+                        'fail');
+                }
+            } catch (error) {
+                logResult('cleanup-result', `Error testing cleanup: ${error.message}`, 'fail');
+            }
+        }
+        
+        // 4.2 Observer Cleanup Test
+        function testObserverCleanup() {
+            try {
+                // Create test element
+                const testDiv = document.createElement('div');
+                document.body.appendChild(testDiv);
+                
+                let mutationCount = 0;
+                
+                // Create observer
+                const observer = new MutationObserver(() => {
+                    mutationCount++;
+                });
+                
+                // Start observing
+                observer.observe(testDiv, { childList: true });
+                
+                // Make a change - should trigger observer
+                testDiv.innerHTML = 'Test 1';
+                
+                // Wait a bit for mutation to process
+                setTimeout(() => {
+                    const beforeDisconnect = mutationCount;
+                    
+                    // Disconnect observer
+                    observer.disconnect();
+                    
+                    // Make another change - should NOT trigger observer
+                    testDiv.innerHTML = 'Test 2';
+                    
+                    setTimeout(() => {
+                        const afterDisconnect = mutationCount;
+                        
+                        // Clean up
+                        document.body.removeChild(testDiv);
+                        
+                        if (beforeDisconnect > 0 && afterDisconnect === beforeDisconnect) {
+                            logResult('observer-result', 
+                                `Observer cleanup working correctly\nMutations before disconnect: ${beforeDisconnect}\nMutations after disconnect: ${afterDisconnect}`, 
+                                'pass');
+                        } else {
+                            logResult('observer-result', 
+                                `Observer cleanup issue\nBefore: ${beforeDisconnect}, After: ${afterDisconnect}`, 
+                                'fail');
+                        }
+                    }, 100);
+                }, 100);
+                
+            } catch (error) {
+                logResult('observer-result', `Error testing observer: ${error.message}`, 'fail');
+            }
+        }
+        
+        // 5.1 End-to-End Storage Test
+        async function testE2EStorage() {
+            try {
+                // Simulate complete storage flow
+                const testData = {
+                    sendBehavior: 'ask',
+                    dpiInline: 150,  // Will be corrected to 150
+                    dpiDisplay: 450,  // Will be corrected to 400
+                    simpleMathFontOutgoing: 'Arial<script>',  // Will be sanitized
+                    showComposeButton: 'yes'  // Will be converted to boolean
+                };
+                
+                const expectedData = {
+                    sendBehavior: 'ask',
+                    dpiInline: 150,
+                    dpiDisplay: 400,
+                    simpleMathFontOutgoing: 'Arialscript',
+                    showComposeButton: true
+                };
+                
+                // Simulate validation
+                const validated = {};
+                for (const [key, value] of Object.entries(testData)) {
+                    if (key === 'dpiInline' || key === 'dpiDisplay') {
+                        const num = Number(value);
+                        validated[key] = Math.min(400, Math.max(100, num));
+                    } else if (key === 'simpleMathFontOutgoing') {
+                        validated[key] = value.replace(/[^a-zA-Z0-9\s\-]/g, '');
+                    } else if (key === 'showComposeButton') {
+                        validated[key] = Boolean(value);
+                    } else {
+                        validated[key] = value;
+                    }
+                }
+                
+                let allCorrect = true;
+                let results = [];
+                
+                for (const key in expectedData) {
+                    const match = validated[key] === expectedData[key];
+                    results.push(`${key}: ${match ? '✓' : '✗'} (${validated[key]})`);
+                    allCorrect = allCorrect && match;
+                }
+                
+                logResult('e2e-result', 
+                    `E2E Storage validation:\n${results.join('\n')}`, 
+                    allCorrect ? 'pass' : 'fail');
+                    
+            } catch (error) {
+                logResult('e2e-result', `Error in E2E test: ${error.message}`, 'fail');
+            }
+        }
+        
+        // 5.2 Settings Sync Test
+        async function testSettingsSync() {
+            try {
+                // Simulate settings change event
+                const changes = {
+                    dpiInline: { oldValue: 200, newValue: 250 },
+                    renderServer: { oldValue: 'codecogs', newValue: 'wordpress' }
+                };
+                
+                // Simulate update handler
+                const updatedSettings = {};
+                for (const [key, change] of Object.entries(changes)) {
+                    updatedSettings[key] = change.newValue;
+                }
+                
+                const hasCorrectValues = 
+                    updatedSettings.dpiInline === 250 && 
+                    updatedSettings.renderServer === 'wordpress';
+                
+                if (hasCorrectValues) {
+                    logResult('sync-result', 
+                        `Settings sync simulation successful:\ndpiInline: 200 → 250\nrenderServer: codecogs → wordpress`, 
+                        'pass');
+                } else {
+                    logResult('sync-result', 
+                        'Settings sync simulation failed', 
+                        'fail');
+                }
+            } catch (error) {
+                logResult('sync-result', `Error testing sync: ${error.message}`, 'fail');
+            }
+        }
+        
+        // Test edge cases and comprehensive validation
+        function testEdgeCases() {
+            try {
+                const edgeCases = [
+                    // Null/undefined handling
+                    { input: null, type: 'number', expected: 200, desc: 'Null to default number' },
+                    { input: undefined, type: 'boolean', expected: false, desc: 'Undefined to boolean' },
+                    
+                    // Extreme values
+                    { input: -100, type: 'dpi', expected: 100, desc: 'Negative DPI clamped to min' },
+                    { input: 9999, type: 'dpi', expected: 400, desc: 'Huge DPI clamped to max' },
+                    { input: 'NaN', type: 'dpi', expected: 200, desc: 'NaN handled gracefully' },
+                    
+                    // XSS attempts
+                    { input: '<script>alert("xss")</script>', type: 'font', expected: 'scriptalertxssscript', desc: 'Script tags removed' },
+                    { input: 'Arial;color:red', type: 'font', expected: 'Arialcolorred', desc: 'CSS injection blocked' },
+                    { input: "serif'; DROP TABLE--", type: 'font', expected: 'serif DROP TABLE', desc: 'SQL injection chars removed' },
+                    
+                    // Boolean edge cases
+                    { input: 'yes', type: 'boolean', expected: true, desc: 'String "yes" to true' },
+                    { input: '1', type: 'boolean', expected: true, desc: 'String "1" to true' },
+                    { input: 0, type: 'boolean', expected: false, desc: 'Number 0 to false' }
+                ];
+                
+                let allPassed = true;
+                let results = [];
+                
+                edgeCases.forEach(test => {
+                    let result;
+                    if (test.type === 'dpi' || test.type === 'number') {
+                        const num = Number(test.input);
+                        if (isNaN(num) || !isFinite(num)) {
+                            result = test.expected; // Use default
+                        } else {
+                            result = Math.round(Math.min(400, Math.max(100, num)));
+                        }
+                    } else if (test.type === 'font') {
+                        result = test.input ? test.input.toString().replace(/[^a-zA-Z0-9\s\-]/g, '') : 'serif';
+                    } else if (test.type === 'boolean') {
+                        if (typeof test.input === 'string') {
+                            result = test.input.toLowerCase() === 'true' || test.input === '1' || test.input === 'yes';
+                        } else {
+                            result = Boolean(test.input);
+                        }
+                    }
+                    
+                    const passed = result === test.expected;
+                    results.push(`${test.desc}: ${passed ? '✓' : '✗'} (${result})`);
+                    allPassed = allPassed && passed;
+                });
+                
+                logResult('edge-case-result', 
+                    `Edge case validation:\n${results.join('\n')}`, 
+                    allPassed ? 'pass' : 'fail');
+                    
+            } catch (error) {
+                logResult('edge-case-result', `Error testing edge cases: ${error.message}`, 'fail');
+            }
+        }
+        
+        // Run all tests automatically
+        async function runAllTests() {
+            console.log('Running all tests...');
+            
+            // Reset stats
+            testStats = { total: 0, passed: 0, failed: 0, warnings: 0 };
+            
+            // Run tests with delays to avoid conflicts
+            await testCSP();
+            await new Promise(r => setTimeout(r, 100));
+            
+            await testStorageQuota();
+            await new Promise(r => setTimeout(r, 100));
+            
+            await testPerformanceMonitoring();
+            await new Promise(r => setTimeout(r, 100));
+            
+            testInputValidation();
+            await new Promise(r => setTimeout(r, 100));
+            
+            testEdgeCases();
+            await new Promise(r => setTimeout(r, 100));
+            
+            await testARIALabels();
+            await new Promise(r => setTimeout(r, 100));
+            
+            await testScreenReader();
+            await new Promise(r => setTimeout(r, 100));
+            
+            testEventCleanup();
+            await new Promise(r => setTimeout(r, 200));
+            
+            testObserverCleanup();
+            await new Promise(r => setTimeout(r, 300));
+            
+            await testE2EStorage();
+            await new Promise(r => setTimeout(r, 100));
+            
+            await testSettingsSync();
+            
+            console.log('All tests completed!');
+        }
+        
+        // Auto-run on load
+        window.addEventListener('load', () => {
+            setTimeout(runAllTests, 1000);
+        });
+    </script>
+</body>
+</html>

@@ -4,8 +4,12 @@
   "version": "1.0.0",
   "version_name": "1.0-beta",
   "description": "Render LaTeX equations in Gmail compose windows. Note: Sends LaTeX to external API for rendering.",
-  "permissions": ["activeTab"],
+  "permissions": ["activeTab", "storage"],
   "host_permissions": ["*://mail.google.com/*"],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": false
+  },
   "icons": {
     "128": "icon128.png"
   },
