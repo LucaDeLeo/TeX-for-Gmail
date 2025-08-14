@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Critical Fixes Test Suite - TeX for Gmail</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    body {
+      font-family: 'Google Sans', Roboto, Arial, sans-serif;
+      max-width: 1200px;
+      margin: 20px auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    .test-section {
+      background: white;
+      padding: 20px;
+      margin: 20px 0;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h2 {
+      color: #1a73e8;
+      border-bottom: 2px solid #e8f0fe;
+      padding-bottom: 10px;
+    }
+    .compose-area {
+      padding: 15px;
+      border: 2px solid #dadce0;
+      border-radius: 4px;
+      background: white;
+      min-height: 100px;
+      font-size: 14px;
+      line-height: 1.8;
+      margin: 10px 0;
+    }
+    .compose-area[contenteditable="true"] {
+      outline: none;
+    }
+    .compose-area[contenteditable="true"]:focus {
+      border-color: #1a73e8;
+      box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.1);
+    }
+    .control-panel {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 1000;
+      max-width: 250px;
+    }
+    .control-panel button {
+      display: block;
+      width: 100%;
+      margin: 8px 0;
+      padding: 10px;
+      background: #1a73e8;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.2s;
+    }
+    .control-panel button:hover {
+      background: #1557b0;
+    }
+    .control-panel button.danger {
+      background: #ea4335;
+    }
+    .control-panel button.danger:hover {
+      background: #c5221f;
+    }
+    .status {
+      padding: 12px;
+      margin: 10px 0;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .status.success {
+      background: #e6f4ea;
+      color: #1e8e3e;
+      border: 1px solid #34a853;
+    }
+    .status.error {
+      background: #fce8e6;
+      color: #c5221f;
+      border: 1px solid #ea4335;
+    }
+    .status.info {
+      background: #e8f0fe;
+      color: #1967d2;
+      border: 1px solid #1a73e8;
+    }
+    .status.warning {
+      background: #fef7e0;
+      color: #ea8600;
+      border: 1px solid #fbbc04;
+    }
+    .test-case {
+      margin: 15px 0;
+      padding: 15px;
+      border-left: 4px solid #1a73e8;
+      background: #f8f9fa;
+      border-radius: 0 4px 4px 0;
+    }
+    .test-description {
+      color: #5f6368;
+      font-size: 13px;
+      margin-bottom: 10px;
+      font-style: italic;
+    }
+    code {
+      background: #f1f3f4;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 13px;
+    }
+    .test-result {
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    .test-result.pass {
+      background: #e6f4ea;
+      color: #1e8e3e;
+    }
+    .test-result.fail {
+      background: #fce8e6;
+      color: #c5221f;
+    }
+  </style>
+</head>
+<body>
+  <div class="control-panel">
+    <h3>🧪 Test Controls</h3>
+    <button onclick="testFunctions.runAllTests()">▶️ Run All Tests</button>
+    <button onclick="testFunctions.testXSSProtection()">🔒 Test XSS Protection</button>
+    <button onclick="testFunctions.testServerFailover()">🔄 Test Server Failover</button>
+    <button onclick="testFunctions.testMutexProtection()">🚦 Test Mutex</button>
+    <button onclick="testFunctions.testImageErrorHandling()">🖼️ Test Image Errors</button>
+    <button onclick="testFunctions.toggleSimpleMode()">📝 Toggle Simple Mode</button>
+    <button onclick="testFunctions.toggleNaiveMode()">🔍 Toggle Naive Mode</button>
+    <button class="danger" onclick="testFunctions.simulateServerFailure()">💥 Kill Current Server</button>
+    <button onclick="testFunctions.resetAll()">🔄 Reset Everything</button>
+    <div id="status-display" class="status info">
+      <strong>System Status:</strong><br>
+      <span id="status-text">Initializing...</span>
+    </div>
+  </div>
+
+  <h1>🔧 Critical Fixes Test Suite</h1>
+  
+  <!-- Test Section 1: XSS Protection -->
+  <div class="test-section">
+    <h2>1. XSS Protection Tests</h2>
+    <div class="test-case">
+      <div class="test-description">Testing enhanced HTML escaping with potentially dangerous characters</div>
+      <div class="compose-area" contenteditable="true" data-test="xss-protection" id="xss-test-area"></div>
+      <div id="xss-result" class="test-result"></div>
+    </div>
+  </div>
+
+  <!-- Test Section 2: Image Error Handling -->
+  <div class="test-section">
+    <h2>2. Image Loading Error Handling</h2>
+    <div class="test-case">
+      <div class="test-description">Testing image error handlers and fallback mechanisms</div>
+      <div class="compose-area" contenteditable="true" data-test="error-handling" id="error-test-area">
+        Valid equation: $E = mc^2$
+        Complex equation: $$\int_{-\infty}^{\infty} e^{-x^2} dx = \sqrt{\pi}$$
+      </div>
+      <div id="error-result" class="test-result"></div>
+    </div>
+  </div>
+
+  <!-- Test Section 3: Server Switching Mutex -->
+  <div class="test-section">
+    <h2>3. Mutex-Protected Server Switching</h2>
+    <div class="test-case">
+      <div class="test-description">Testing race condition prevention in server switching</div>
+      <div class="compose-area" contenteditable="true" data-test="mutex" id="mutex-test-area">
+        Test equation 1: $\alpha + \beta = \gamma$
+        Test equation 2: $$\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$$
+        Test equation 3: $f(x) = x^2 + 2x + 1$
+      </div>
+      <button onclick="testFunctions.triggerRapidSwitching()">Trigger Rapid Server Switches</button>
+      <div id="mutex-result" class="test-result"></div>
+    </div>
+  </div>
+
+  <!-- Test Section 4: Multi-Mode Rendering -->
+  <div class="test-section">
+    <h2>4. Multi-Mode Rendering Tests</h2>
+    <div class="test-case">
+      <div class="test-description">Testing all rendering modes (Rich, Simple, Naive)</div>
+      <div class="compose-area" contenteditable="true" data-test="multimode" id="multimode-test-area">
+        Rich Math: $\frac{d}{dx}(x^2) = 2x$ and $$\oint_C \vec{F} \cdot d\vec{r} = \iint_S (\nabla \times \vec{F}) \cdot d\vec{S}$$
+        Simple Math (offline): Greek letters will show as α β γ Σ ∫
+        Naive TeX (no delimiters): x^2 + y^2 = r^2 and e^(iπ) + 1 = 0
+      </div>
+      <div id="multimode-result" class="test-result"></div>
+    </div>
+  </div>
+
+  <!-- Test Section 5: High DPI Rendering -->
+  <div class="test-section">
+    <h2>5. High DPI Quality Tests</h2>
+    <div class="test-case">
+      <div class="test-description">Testing 200 DPI inline and 300 DPI display rendering</div>
+      <div class="compose-area" contenteditable="true" data-test="dpi" id="dpi-test-area">
+        Inline high DPI test: The equation $a^2 + b^2 = c^2$ should be crisp.
+        Display high DPI test: 
+        $$\mathcal{L}[f(t)] = \int_0^{\infty} f(t)e^{-st} dt$$
+      </div>
+      <div id="dpi-result" class="test-result"></div>
+    </div>
+  </div>
+
+  <!-- Test Section 6: Baseline Alignment -->
+  <div class="test-section">
+    <h2>6. Baseline Alignment Tests</h2>
+    <div class="test-case">
+      <div class="test-description">Testing vertical alignment of inline equations</div>
+      <div class="compose-area" contenteditable="true" data-test="alignment" id="alignment-test-area" style="font-size: 16px; line-height: 1.8;">
+        Regular text with inline math $x_1$ subscript and $x^2$ superscript should align.
+        Testing fractions $\frac{1}{2}$ and roots $\sqrt{x}$ in a sentence.
+      </div>
+      <div id="alignment-result" class="test-result"></div>
+    </div>
+  </div>
+
+  <!-- Load the extension first -->
+  <script src="content.js"></script>
+  
+  <!-- Test functions that will be exposed globally -->
+  <script>
+    // Create a global test functions object
+    window.testFunctions = {
+      updateStatus: function(message, type = 'info') {
+        const statusDisplay = document.getElementById('status-display');
+        const statusText = document.getElementById('status-text');
+        statusDisplay.className = `status ${type}`;
+        statusText.innerHTML = message;
+      },
+
+      // Inject XSS test content dynamically (safe way)
+      injectXSSTestContent: function() {
+        const xssArea = document.getElementById('xss-test-area');
+        // Use textContent to safely insert the test strings
+        xssArea.textContent = 'Test malicious input: $<' + 'script>alert("XSS")</' + 'script>$\n' +
+                             'Test backticks: $`console.log("test")`$\n' +
+                             'Test equals: $a=b$\n' +
+                             'Test parentheses: $(a+b)$\n' +
+                             'Test all special chars: ${}[]()=`\'"<>&|*+?^.$';
+      },
+
+      testXSSProtection: function() {
+        console.log('Testing XSS Protection...');
+        this.updateStatus('Testing XSS Protection...', 'info');
+        
+        // First inject the test content safely
+        this.injectXSSTestContent();
+        
+        const testArea = document.getElementById('xss-test-area');
+        const resultDiv = document.getElementById('xss-result');
+        
+        // Trigger rendering by calling the extension function
+        if (typeof detectAndRenderLatex !== 'undefined') {
+          detectAndRenderLatex(testArea);
+          
+          setTimeout(() => {
+            // Check if any script tags exist in the rendered output
+            const hasScripts = testArea.querySelector('script');
+            const hasEvals = testArea.innerHTML.includes('eval(');
+            const hasOnEvents = testArea.innerHTML.match(/on\w+\s*=/);
+            
+            if (!hasScripts && !hasEvals && !hasOnEvents) {
+              resultDiv.className = 'test-result pass';
+              resultDiv.textContent = '✅ XSS Protection PASSED: No script injection detected';
+              this.updateStatus('✅ XSS Protection: PASSED', 'success');
+            } else {
+              resultDiv.className = 'test-result fail';
+              resultDiv.textContent = '❌ XSS Protection FAILED: Dangerous content found!';
+              this.updateStatus('❌ XSS Protection: FAILED', 'error');
+            }
+          }, 500);
+        } else {
+          resultDiv.className = 'test-result fail';
+          resultDiv.textContent = '❌ Extension functions not loaded';
+          this.updateStatus('❌ Extension not loaded', 'error');
+        }
+      },
+
+      testServerFailover: function() {
+        console.log('Testing Server Failover...');
+        this.updateStatus('Testing Server Failover...', 'info');
+        
+        const resultDiv = document.getElementById('error-result');
+        
+        if (typeof ServerHealth !== 'undefined' && typeof TeXForGmail !== 'undefined') {
+          // Save current state
+          const originalServer = TeXForGmail.serverPreference;
+          const originalFailures = ServerHealth.codecogs.failures;
+          
+          // Simulate CodeCogs failure
+          ServerHealth.codecogs.failures = 3;
+          
+          const testArea = document.getElementById('error-test-area');
+          detectAndRenderLatex(testArea);
+          
+          setTimeout(() => {
+            const switched = TeXForGmail.serverPreference === 'wordpress';
+            
+            if (switched) {
+              resultDiv.className = 'test-result pass';
+              resultDiv.textContent = '✅ Server Failover PASSED: Successfully switched to WordPress';
+              this.updateStatus('✅ Server Failover: PASSED', 'success');
+            } else {
+              resultDiv.className = 'test-result fail';
+              resultDiv.textContent = '❌ Server Failover FAILED: Did not switch servers';
+              this.updateStatus('❌ Server Failover: FAILED', 'error');
+            }
+            
+            // Restore state
+            ServerHealth.codecogs.failures = originalFailures;
+            TeXForGmail.serverPreference = originalServer;
+          }, 1000);
+        } else {
+          resultDiv.className = 'test-result fail';
+          resultDiv.textContent = '❌ Extension objects not available';
+        }
+      },
+
+      testMutexProtection: function() {
+        console.log('Testing Mutex Protection...');
+        this.updateStatus('Testing Mutex Protection...', 'info');
+        
+        const resultDiv = document.getElementById('mutex-result');
+        
+        if (typeof switchServerSafely !== 'undefined') {
+          let switchCount = 0;
+          const originalSwitch = window.switchServerSafely;
+          
+          // Override to count switches
+          window.switchServerSafely = function(server, reason) {
+            switchCount++;
+            return originalSwitch.call(this, server, reason);
+          };
+          
+          // Trigger multiple rapid switches
+          for (let i = 0; i < 10; i++) {
+            switchServerSafely(i % 2 === 0 ? 'wordpress' : 'codecogs', 'Test ' + i);
+          }
+          
+          setTimeout(() => {
+            window.switchServerSafely = originalSwitch;
+            
+            if (switchCount <= 2) {
+              resultDiv.className = 'test-result pass';
+              resultDiv.textContent = `✅ Mutex Protection PASSED: Only ${switchCount} switches allowed (mutex working)`;
+              this.updateStatus('✅ Mutex Protection: PASSED', 'success');
+            } else {
+              resultDiv.className = 'test-result fail';
+              resultDiv.textContent = `❌ Mutex Protection FAILED: ${switchCount} switches occurred (should be ≤2)`;
+              this.updateStatus('❌ Mutex Protection: FAILED', 'error');
+            }
+          }, 500);
+        } else {
+          resultDiv.className = 'test-result fail';
+          resultDiv.textContent = '❌ switchServerSafely function not available';
+        }
+      },
+
+      testImageErrorHandling: function() {
+        console.log('Testing Image Error Handling...');
+        this.updateStatus('Testing Image Error Handling...', 'info');
+        
+        const resultDiv = document.getElementById('error-result');
+        
+        // Create a test image with invalid URL
+        const testWrapper = document.createElement('span');
+        testWrapper.className = 'tex-math-inline';
+        
+        const testImg = document.createElement('img');
+        testImg.src = 'http://invalid-domain-that-does-not-exist.com/test.png';
+        testImg.alt = '$test$';
+        
+        let errorHandled = false;
+        
+        // Check if error handler exists
+        if (testImg.onerror || typeof createMathWrapper !== 'undefined') {
+          // Test the createMathWrapper function with invalid URL
+          const wrapper = createMathWrapper('test', false, 'http://invalid-url.com/test.png');
+          
+          if (wrapper && wrapper.querySelector('img')) {
+            const img = wrapper.querySelector('img');
+            
+            // Manually trigger error
+            setTimeout(() => {
+              if (img.onerror) {
+                img.onerror();
+                errorHandled = true;
+              }
+              
+              setTimeout(() => {
+                if (errorHandled || wrapper.classList.contains('tex-render-error')) {
+                  resultDiv.className = 'test-result pass';
+                  resultDiv.textContent = '✅ Image Error Handling PASSED: Error handler implemented';
+                  this.updateStatus('✅ Image Error Handling: PASSED', 'success');
+                } else {
+                  resultDiv.className = 'test-result fail';
+                  resultDiv.textContent = '❌ Image Error Handling FAILED: No error handling';
+                  this.updateStatus('❌ Image Error Handling: FAILED', 'error');
+                }
+              }, 100);
+            }, 100);
+          }
+        } else {
+          resultDiv.className = 'test-result fail';
+          resultDiv.textContent = '❌ Image error handlers not implemented';
+        }
+      },
+
+      toggleSimpleMode: function() {
+        if (typeof TeXForGmail !== 'undefined') {
+          TeXForGmail.simpleMode = !TeXForGmail.simpleMode;
+          this.updateStatus(`Simple Mode: ${TeXForGmail.simpleMode ? 'ON' : 'OFF'}`, 'info');
+          this.rerenderAll();
+        }
+      },
+
+      toggleNaiveMode: function() {
+        if (typeof TeXForGmail !== 'undefined') {
+          TeXForGmail.naiveTexMode = !TeXForGmail.naiveTexMode;
+          this.updateStatus(`Naive TeX Mode: ${TeXForGmail.naiveTexMode ? 'ON' : 'OFF'}`, 'info');
+          this.rerenderAll();
+        }
+      },
+
+      simulateServerFailure: function() {
+        if (typeof TeXForGmail !== 'undefined' && typeof ServerHealth !== 'undefined') {
+          const currentServer = TeXForGmail.serverPreference;
+          ServerHealth[currentServer].failures = 3;
+          this.updateStatus(`💥 Killed ${currentServer} server<br>Failures: ${ServerHealth[currentServer].failures}`, 'error');
+        }
+      },
+
+      triggerRapidSwitching: function() {
+        this.updateStatus('Triggering rapid switches...', 'warning');
+        if (typeof switchServerSafely !== 'undefined') {
+          for (let i = 0; i < 10; i++) {
+            setTimeout(() => {
+              switchServerSafely(i % 2 === 0 ? 'wordpress' : 'codecogs', 'Rapid test ' + i);
+            }, i * 50);
+          }
+          setTimeout(() => {
+            this.updateStatus('Rapid switching test complete', 'success');
+          }, 600);
+        }
+      },
+
+      rerenderAll: function() {
+        if (typeof detectAndRenderLatex !== 'undefined') {
+          document.querySelectorAll('.compose-area').forEach(area => {
+            // Clear existing renders
+            area.querySelectorAll('.tex-math-inline, .tex-math-display').forEach(el => {
+              const source = el.getAttribute('data-latex');
+              if (source) {
+                const isDisplay = el.classList.contains('tex-math-display');
+                el.replaceWith(document.createTextNode(isDisplay ? `$$${source}$$` : `$${source}$`));
+              }
+            });
+            // Re-render
+            detectAndRenderLatex(area);
+          });
+        }
+      },
+
+      resetAll: function() {
+        if (typeof TeXForGmail !== 'undefined' && typeof ServerHealth !== 'undefined') {
+          TeXForGmail.serverPreference = 'codecogs';
+          TeXForGmail.simpleMode = false;
+          TeXForGmail.naiveTexMode = false;
+          TeXForGmail.serverSwitchMutex = false;
+          ServerHealth.codecogs.failures = 0;
+          ServerHealth.wordpress.failures = 0;
+          sessionStorage.clear();
+          this.updateStatus('System reset to defaults', 'info');
+          location.reload();
+        }
+      },
+
+      runAllTests: function() {
+        this.updateStatus('Running all tests...', 'info');
+        
+        const tests = [
+          { fn: () => this.testXSSProtection(), delay: 0 },
+          { fn: () => this.testServerFailover(), delay: 1500 },
+          { fn: () => this.testMutexProtection(), delay: 3000 },
+          { fn: () => this.testImageErrorHandling(), delay: 4500 }
+        ];
+        
+        tests.forEach(test => {
+          setTimeout(test.fn, test.delay);
+        });
+        
+        setTimeout(() => {
+          this.updateStatus('✅ All tests completed! Check individual results.', 'success');
+        }, 6000);
+      },
+
+      checkExtensionLoaded: function() {
+        const checks = {
+          TeXForGmail: typeof TeXForGmail !== 'undefined',
+          detectAndRenderLatex: typeof detectAndRenderLatex !== 'undefined',
+          ServerHealth: typeof ServerHealth !== 'undefined',
+          switchServerSafely: typeof switchServerSafely !== 'undefined',
+          createMathWrapper: typeof createMathWrapper !== 'undefined'
+        };
+        
+        const loaded = Object.values(checks).every(v => v);
+        const missing = Object.entries(checks).filter(([k, v]) => !v).map(([k]) => k);
+        
+        if (loaded) {
+          this.updateStatus('✅ Extension loaded successfully<br>All functions available', 'success');
+        } else {
+          this.updateStatus(`⚠️ Extension partially loaded<br>Missing: ${missing.join(', ')}`, 'warning');
+        }
+        
+        return loaded;
+      }
+    };
+
+    // Wait for extension to load and expose functions globally
+    window.addEventListener('load', () => {
+      // Check if the extension loaded properly
+      setTimeout(() => {
+        const loaded = testFunctions.checkExtensionLoaded();
+        
+        if (!loaded) {
+          // Try to expose functions from the IIFE if they exist
+          console.log('Attempting to expose extension functions...');
+          
+          // The extension needs to expose these functions globally
+          // This would need to be done in content.js
+        }
+        
+        // Set up automatic rendering for all compose areas
+        if (typeof detectAndRenderLatex !== 'undefined') {
+          document.querySelectorAll('.compose-area').forEach(area => {
+            area.addEventListener('blur', () => {
+              detectAndRenderLatex(area);
+            });
+          });
+        }
+      }, 100);
+    });
+  </script>
+</body>
+</html>

@@ -39,7 +39,12 @@
 }
 
 /* Ensure images within math elements align properly */
-.tex-math-inline img,
+.tex-math-inline img {
+  vertical-align: -0.4em; /* Better baseline alignment for inline equations */
+  max-width: 100%;
+  height: auto;
+}
+
 .tex-math-display img {
   vertical-align: middle;
   max-width: 100%;
