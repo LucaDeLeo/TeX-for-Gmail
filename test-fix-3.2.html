@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Story 3.2 Fix Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .test-area {
+            border: 2px solid #4285f4;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            background: white;
+        }
+        h2 {
+            color: #1a73e8;
+        }
+        .compose {
+            min-height: 100px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            margin: 10px 0;
+            background: #f9f9f9;
+        }
+        .status {
+            padding: 5px 10px;
+            border-radius: 4px;
+            display: inline-block;
+            margin: 5px 0;
+        }
+        .pass { background: #d4edda; color: #155724; }
+        .fail { background: #f8d7da; color: #721c24; }
+        .pending { background: #fff3cd; color: #856404; }
+    </style>
+</head>
+<body>
+    <h1>Story 3.2 Critical Fix Test</h1>
+    <p>Testing the fix for escaped delimiter check that was blocking \(...\) and \[...\] patterns</p>
+
+    <div class="test-area">
+        <h2>Test 1: New Delimiter Patterns (Primary Feature)</h2>
+        <div class="status pending">AC1: Pattern Support</div>
+        
+        <h3>Inline Parenthesis Pattern</h3>
+        <div class="compose" contenteditable="true" g_editable="true">
+            The quadratic formula is \(x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}\) which gives us the roots.
+        </div>
+        
+        <h3>Display Bracket Pattern</h3>
+        <div class="compose" contenteditable="true" g_editable="true">
+            The integral:
+            \[\int_0^1 f(x) dx = F(1) - F(0)\]
+        </div>
+        
+        <h3>Mixed Patterns</h3>
+        <div class="compose" contenteditable="true" g_editable="true">
+            We have inline $x^2$, parenthesis \(y^3\), display $$z^4$$, and brackets \[w^5\] all together.
+        </div>
+    </div>
+
+    <div class="test-area">
+        <h2>Test 2: Abbreviations</h2>
+        <div class="status pending">AC2: Abbreviation System</div>
+        
+        <div class="compose" contenteditable="true" g_editable="true">
+            Testing all abbreviations: $\bR$ (blackboard), $\bfA$ (bold), $\cH$ (calligraphic), 
+            $\fG$ (fraktur), $\wT$ (wide tilde), $\oX$ (overline), $\uY$ (underline)
+        </div>
+    </div>
+
+    <div class="test-area">
+        <h2>Test 3: Theorem Environments</h2>
+        <div class="status pending">AC3: Theorem Environments</div>
+        
+        <div class="compose" contenteditable="true" g_editable="true">
+            \begin{theorem}[blue]
+            If $f$ is continuous on $[a,b]$, then $f$ is integrable.
+            \end{theorem}
+            
+            \begin{lemma}[red]
+            Every convergent sequence is bounded.
+            \end{lemma}
+        </div>
+    </div>
+
+    <div class="test-area">
+        <h2>Test 4: Trailing Space Protection</h2>
+        <div class="status pending">AC4: Trailing Space Handling</div>
+        
+        <div class="compose" contenteditable="true" g_editable="true">
+            Should NOT render: $x^2 $ (trailing space)
+            Should NOT render: $ x^2$ (leading space)
+            Should render: $x + y = z$ (internal spaces OK)
+        </div>
+    </div>
+
+    <div class="test-area">
+        <h2>Test 5: Currency Exclusion</h2>
+        <div class="status pending">AC5: Currency Detection</div>
+        
+        <div class="compose" contenteditable="true" g_editable="true">
+            Currency (should NOT render): $19.99 and $1,234.56
+            Math (SHOULD render): $1 + 1 = 2$ and $n = 50$
+        </div>
+    </div>
+
+    <div class="test-area">
+        <h2>Test 6: Orphaned Escaped Delimiters</h2>
+        <div class="status pending">Edge Case: Escaped Delimiters</div>
+        
+        <div class="compose" contenteditable="true" g_editable="true">
+            Text with orphaned \( should not process.
+            Text with orphaned \[ should not process.
+            But complete patterns \(x^2\) and \[y^3\] should work!
+        </div>
+    </div>
+
+    <script src="content.js"></script>
+    <script>
+        // Initialize the extension after a short delay
+        setTimeout(() => {
+            console.log('Test page loaded. Extension should be active.');
+            // Force initialization if needed
+            if (typeof TeXForGmail !== 'undefined' && TeXForGmail.init) {
+                TeXForGmail.init();
+            }
+        }, 1000);
+    </script>
+</body>
+</html>
