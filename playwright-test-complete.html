@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Complete TeX-for-Gmail Test Suite</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        
+        .test-section {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .editable {
+            border: 2px solid #4285f4;
+            padding: 15px;
+            margin: 10px 0;
+            min-height: 100px;
+            background: #fff;
+            border-radius: 4px;
+        }
+        
+        .editable:focus {
+            outline: none;
+            border-color: #1a73e8;
+            box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.2);
+        }
+        
+        h2 {
+            color: #1a73e8;
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 10px;
+        }
+        
+        .test-case {
+            margin: 15px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-left: 4px solid #34a853;
+            border-radius: 4px;
+        }
+        
+        .expected {
+            color: #5f6368;
+            font-style: italic;
+            margin-top: 10px;
+        }
+        
+        .status {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        
+        .status.pass {
+            background: #e6f4ea;
+            color: #0d652d;
+        }
+        
+        .status.fail {
+            background: #fce8e6;
+            color: #c5221f;
+        }
+        
+        button {
+            background: #1a73e8;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        
+        button:hover {
+            background: #1557b0;
+        }
+        
+        #results {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f0f0f0;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Complete TeX-for-Gmail Test Suite</h1>
+    
+    <div class="test-section">
+        <h2>Test Controls</h2>
+        <button onclick="runAllTests()">Run All Tests</button>
+        <button onclick="clearAll()">Clear All</button>
+        <button onclick="checkRendering()">Check Rendering</button>
+        <div id="results"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 1: Inline vs Display Mode</h2>
+        <div class="test-case">
+            <h3>Single $ (Inline)</h3>
+            <div class="editable" contenteditable="true" id="test1-inline">
+                The equation $E = mc^2$ should render inline with text.
+            </div>
+            <div class="expected">Expected: Small equation aligned with text baseline, DPI=110</div>
+        </div>
+        
+        <div class="test-case">
+            <h3>Double $$ (Display)</h3>
+            <div class="editable" contenteditable="true" id="test1-display">
+                The equation $$E = mc^2$$ should render as display mode.
+            </div>
+            <div class="expected">Expected: Larger equation, centered, DPI=300</div>
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 2: Mixed Content</h2>
+        <div class="test-case">
+            <div class="editable" contenteditable="true" id="test2-mixed">
+                Inline math like $\sum_{i=1}^n x_i$ flows with text, while display math 
+                $$\int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}$$
+                is shown prominently. And another inline $a^2 + b^2 = c^2$ continues the flow.
+            </div>
+            <div class="expected">Expected: Two inline equations (small) and one display equation (large, centered)</div>
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 3: Bracket Notation</h2>
+        <div class="test-case">
+            <div class="editable" contenteditable="true" id="test3-brackets">
+                Inline with brackets: \(a + b = c\) and display with brackets: \[x^2 + y^2 = z^2\]
+            </div>
+            <div class="expected">Expected: \(...\) renders inline, \[...\] renders display</div>
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 4: Complex Equations</h2>
+        <div class="test-case">
+            <h3>Inline Fraction</h3>
+            <div class="editable" contenteditable="true" id="test4-inline-frac">
+                The fraction $\frac{a+b}{c+d}$ should be compact inline.
+            </div>
+            <div class="expected">Expected: Compact fraction inline with text</div>
+        </div>
+        
+        <div class="test-case">
+            <h3>Display Fraction</h3>
+            <div class="editable" contenteditable="true" id="test4-display-frac">
+                The fraction $$\frac{a+b}{c+d}$$ should be large and centered.
+            </div>
+            <div class="expected">Expected: Large fraction, centered</div>
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 5: URL Verification</h2>
+        <div class="test-case">
+            <div class="editable" contenteditable="true" id="test5-urls">
+                Inline: $x^2$ and Display: $$y^3$$
+            </div>
+            <div class="expected">
+                Expected URLs:<br>
+                - Inline: Should NOT contain \inline, DPI=110<br>
+                - Display: Should contain \displaystyle, DPI=300
+            </div>
+        </div>
+    </div>
+    
+    <!-- Include the actual extension scripts -->
+    <script src="content.js"></script>
+    
+    <script>
+        // Initialize extension if available
+        if (typeof TeXForGmail !== 'undefined') {
+            console.log('TeXForGmail extension loaded');
+            // Override storage to use test defaults
+            TeXForGmail.storage = {
+                get: function(keys, callback) {
+                    const defaults = {
+                        sendBehavior: 'ask',
+                        renderServer: 'codecogs',
+                        dpiInline: 110,
+                        dpiDisplay: 300,
+                        simpleMathFontOutgoing: 'serif',
+                        simpleMathFontIncoming: 'serif',
+                        showComposeButton: true,
+                        showReadButton: true,
+                        enableKeyboardShortcuts: true
+                    };
+                    callback(defaults);
+                },
+                set: function(data, callback) {
+                    console.log('Settings saved:', data);
+                    if (callback) callback();
+                }
+            };
+            
+            // Initialize the extension
+            setTimeout(() => {
+                TeXForGmail.init();
+                console.log('TeXForGmail initialized');
+            }, 100);
+        }
+        
+        function runAllTests() {
+            const results = document.getElementById('results');
+            results.textContent = 'Running tests...\n';
+            
+            // Trigger input events to process LaTeX
+            const editables = document.querySelectorAll('.editable');
+            editables.forEach((el, index) => {
+                setTimeout(() => {
+                    el.focus();
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.blur();
+                    results.textContent += `Test ${index + 1} triggered\n`;
+                }, index * 500);
+            });
+            
+            setTimeout(checkRendering, editables.length * 500 + 1000);
+        }
+        
+        function checkRendering() {
+            const results = document.getElementById('results');
+            results.textContent = 'Checking rendering results...\n\n';
+            
+            // Check for rendered images
+            const images = document.querySelectorAll('.tex-math-inline img, .tex-math-display img');
+            results.textContent += `Found ${images.length} rendered equations\n\n`;
+            
+            images.forEach((img, index) => {
+                const isInline = img.closest('.tex-math-inline') !== null;
+                const url = img.src;
+                
+                results.textContent += `Equation ${index + 1}:\n`;
+                results.textContent += `  Type: ${isInline ? 'INLINE' : 'DISPLAY'}\n`;
+                results.textContent += `  URL: ${url.substring(0, 100)}...\n`;
+                
+                // Check URL correctness
+                if (isInline) {
+                    if (url.includes('\\inline')) {
+                        results.textContent += `  ❌ ERROR: Inline URL contains \\inline\n`;
+                    } else if (url.includes('dpi{110}')) {
+                        results.textContent += `  ✅ PASS: Correct inline DPI (110)\n`;
+                    } else {
+                        results.textContent += `  ⚠️ WARNING: Unexpected inline DPI\n`;
+                    }
+                } else {
+                    if (url.includes('\\displaystyle')) {
+                        results.textContent += `  ✅ PASS: Display URL contains \\displaystyle\n`;
+                    } else {
+                        results.textContent += `  ❌ ERROR: Display URL missing \\displaystyle\n`;
+                    }
+                    
+                    if (url.includes('dpi{300}')) {
+                        results.textContent += `  ✅ PASS: Correct display DPI (300)\n`;
+                    } else {
+                        results.textContent += `  ⚠️ WARNING: Unexpected display DPI\n`;
+                    }
+                }
+                
+                // Check CSS
+                const computedStyle = window.getComputedStyle(img);
+                results.textContent += `  Vertical Align: ${computedStyle.verticalAlign}\n`;
+                
+                results.textContent += '\n';
+            });
+        }
+        
+        function clearAll() {
+            document.querySelectorAll('.editable').forEach(el => {
+                el.innerHTML = el.textContent;
+            });
+            document.getElementById('results').textContent = 'Cleared all rendered equations';
+        }
+    </script>
+</body>
+</html>

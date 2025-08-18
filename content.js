@@ -19,8 +19,8 @@
     renderDebounceDelay: 500, // For LaTeX rendering
     toastDuration: 3000,
     dpi: {
-      inline: 200,
-      display: 300
+      inline: 110,  // Inline equations: better text sizing
+      display: 300  // Display equations: higher fidelity
     },
     size: {
       inline: '\\normalsize',
@@ -40,7 +40,7 @@
       this.validationRules = {
         sendBehavior: { type: 'enum', values: ['always', 'never', 'ask'], default: 'ask' },
         renderServer: { type: 'enum', values: ['codecogs', 'wordpress'], default: 'codecogs' },
-        dpiInline: { type: 'number', min: 100, max: 400, default: 200 },
+        dpiInline: { type: 'number', min: 100, max: 400, default: 110 },
         dpiDisplay: { type: 'number', min: 100, max: 400, default: 300 },
         simpleMathFontOutgoing: { type: 'font', maxLength: 100, default: 'serif' },
         simpleMathFontIncoming: { type: 'font', maxLength: 100, default: 'serif' },
@@ -446,7 +446,7 @@
       const defaultSettings = {
         sendBehavior: 'ask',
         renderServer: 'codecogs',
-        dpiInline: 200,
+        dpiInline: 110,
         dpiDisplay: 300,
         simpleMathFontOutgoing: 'serif',
         simpleMathFontIncoming: 'serif',
@@ -952,7 +952,8 @@
     
     const encoded = encodeURIComponent(latex);
     const dpi = isDisplay ? CONFIG.dpi.display : CONFIG.dpi.inline;
-    const displayPrefix = isDisplay ? '\\displaystyle' : '\\inline';
+    // Fix: Remove invalid \inline prefix - use empty string or \textstyle for inline
+    const displayPrefix = isDisplay ? '\\displaystyle' : '';
     return `https://latex.codecogs.com/png.image?\\dpi{${dpi}}${displayPrefix}%20${encoded}`;
   }
 
@@ -1110,6 +1111,16 @@
       wrapper.setAttribute('data-display', isDisplay);
       wrapper.setAttribute('data-render-mode', 'simple');
       
+      // Add proper styling for inline vs display differentiation
+      if (isDisplay) {
+        wrapper.style.display = 'block';
+        wrapper.style.textAlign = 'center';
+        wrapper.style.margin = '1em 0';
+      } else {
+        wrapper.style.display = 'inline-block';
+        wrapper.style.verticalAlign = 'middle';
+      }
+      
       // Process the latex string
       let processedLatex = latex;
       
@@ -1123,6 +1134,9 @@
       const container = document.createElement('span');
       container.style.fontFamily = 'serif';
       container.style.fontSize = isDisplay ? '1.2em' : '1em';
+      if (!isDisplay) {
+        container.style.verticalAlign = 'middle';
+      }
       
       // Process superscripts and subscripts
       const parts = [];
@@ -1305,6 +1319,16 @@
     wrapper.setAttribute('data-processed', 'true');
     wrapper.setAttribute('data-tex-toggled', 'rendered'); // Task 4 (Story 1.3): Track element state
     
+    // Add proper styling for inline vs display differentiation
+    if (isDisplay) {
+      wrapper.style.display = 'block';
+      wrapper.style.textAlign = 'center';
+      wrapper.style.margin = '1em 0';
+    } else {
+      wrapper.style.display = 'inline-block';
+      wrapper.style.verticalAlign = 'middle';
+    }
+    
     const img = document.createElement('img');
     img.src = imgUrl;
     
@@ -1342,8 +1366,14 @@
     // Prevent cursor issues in Gmail composer
     img.contentEditable = false;
     
-    // Consistent styling
-    img.style.verticalAlign = 'middle';
+    // Consistent styling with proper alignment for inline vs display
+    if (isDisplay) {
+      img.style.display = 'inline-block';
+      img.style.maxWidth = '100%';
+    } else {
+      img.style.verticalAlign = 'middle';
+      img.style.display = 'inline';
+    }
     img.style.cursor = 'pointer';
     
     // Error handling for image loading with improved user feedback

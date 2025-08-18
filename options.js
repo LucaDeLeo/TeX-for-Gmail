@@ -9,7 +9,7 @@ const DEFAULT_SETTINGS = {
     serverFallback: true,        // Auto-switch on failure
     
     // Image Quality
-    dpiInline: 200,             // 100-400 range
+    dpiInline: 110,             // 100-400 range (better inline sizing)
     dpiDisplay: 300,            // 100-400 range
     
     // Simple Math Fonts
@@ -465,7 +465,8 @@ function updateInlinePreview(dpi) {
     const server = document.getElementById('renderServer').value;
     
     if (server === 'codecogs') {
-        preview.src = `https://latex.codecogs.com/svg.image?\\dpi{${dpi}}\\inline\\;E=mc^2`;
+        // Inline mode: no style prefix; rely on DPI for sizing
+        preview.src = `https://latex.codecogs.com/svg.image?\\dpi{${dpi}}E=mc^2`;
     } else {
         preview.src = `https://s0.wp.com/latex.php?latex=E%3Dmc%5E2&bg=ffffff&fg=000000&s=${Math.round(dpi/100)}`;
     }
