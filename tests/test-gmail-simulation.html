@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gmail - Compose</title>
+    <style>
+        body {
+            font-family: 'Google Sans', Roboto, RobotoDraft, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: #f1f3f4;
+        }
+        
+        /* Gmail-like compose window */
+        .gmail-compose {
+            background: white;
+            max-width: 700px;
+            margin: 50px auto;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px 0 rgba(60,64,67,0.3), 0 4px 8px 3px rgba(60,64,67,0.15);
+        }
+        
+        .compose-header {
+            background: #404040;
+            color: white;
+            padding: 16px;
+            border-radius: 8px 8px 0 0;
+            font-size: 14px;
+        }
+        
+        .compose-fields {
+            padding: 8px 16px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .compose-field {
+            display: flex;
+            align-items: center;
+            padding: 8px 0;
+        }
+        
+        .field-label {
+            color: #5f6368;
+            font-size: 14px;
+            width: 50px;
+        }
+        
+        .field-input {
+            flex: 1;
+            border: none;
+            outline: none;
+            font-size: 14px;
+            padding: 4px;
+        }
+        
+        /* Gmail compose body - this is where LaTeX will be rendered */
+        .compose-body {
+            min-height: 400px;
+            padding: 16px;
+            font-size: 14px;
+            line-height: 20px;
+            color: #202124;
+            outline: none;
+        }
+        
+        /* Simulating Gmail's editable div structure */
+        div[contenteditable="true"] {
+            outline: none;
+        }
+        
+        .email-content p {
+            margin: 8px 0;
+        }
+        
+        .test-label {
+            background: #feefc3;
+            padding: 8px;
+            margin: 8px 0;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #5f6368;
+        }
+        
+        /* Toolbar */
+        .compose-toolbar {
+            padding: 12px 16px;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            gap: 8px;
+        }
+        
+        .send-button {
+            background: #1a73e8;
+            color: white;
+            border: none;
+            padding: 8px 24px;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="gmail-compose">
+        <div class="compose-header">
+            New Message
+        </div>
+        
+        <div class="compose-fields">
+            <div class="compose-field">
+                <span class="field-label">To</span>
+                <input type="text" class="field-input" value="test@example.com">
+            </div>
+            <div class="compose-field">
+                <span class="field-label">Subject</span>
+                <input type="text" class="field-input" value="Testing LaTeX Image Resolution - QA Verification">
+            </div>
+        </div>
+        
+        <!-- This is the actual compose body where Gmail renders email content -->
+        <div class="compose-body" contenteditable="true" role="textbox" aria-multiline="true">
+            <div class="email-content">
+                <div class="test-label">Test 1: Inline Equation (110 DPI) - Should be crisp but optimized for text</div>
+                <p>The derivative $\frac{d}{dt}\langle\alpha^{(a)}, \alpha^{b)}\rangle = \langle\{\alpha^{(a)}, \partial^b\}H(\alpha)\rangle$ should appear sharp inline.</p>
+                
+                <div class="test-label">Test 2: Display Equation (300 DPI) - Should be high resolution</div>
+                <p>$$\frac{d}{dt}\langle\alpha^{(a)}, \alpha^{b)}\rangle = \langle\{\alpha^{(a)}, \partial^b\}H(\alpha)\rangle$$</p>
+                
+                <div class="test-label">Test 3: Complex Integral (300 DPI display mode)</div>
+                <p>$$\int_{-\infty}^{\infty} e^{-x^2} dx = \sqrt{\pi}$$</p>
+                
+                <div class="test-label">Test 4: Matrix (High detail test)</div>
+                <p>$$\begin{pmatrix} a & b \\ c & d \end{pmatrix} \begin{pmatrix} x \\ y \end{pmatrix} = \begin{pmatrix} ax + by \\ cx + dy \end{pmatrix}$$</p>
+                
+                <div class="test-label">Test 5: Subscripts and Superscripts (Fine detail)</div>
+                <p>Inline: $x_{i,j}^{2n+1}$ and display: $$\lim_{n \to \infty} \left(1 + \frac{1}{n}\right)^n = e$$</p>
+                
+                <div class="test-label">Test 6: Sum notation (300 DPI)</div>
+                <p>$$\sum_{n=1}^{\infty} \frac{1}{n^2} = \frac{\pi^2}{6}$$</p>
+            </div>
+        </div>
+        
+        <div class="compose-toolbar">
+            <button class="send-button">Send</button>
+        </div>
+    </div>
+
+    <!-- Load the extension content script -->
+    <script>
+        // Simulate Gmail's compose detection
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('Gmail simulation loaded - Ready for TeX extension');
+            // The extension should detect contenteditable divs and process LaTeX
+        });
+    </script>
+</body>
+</html>

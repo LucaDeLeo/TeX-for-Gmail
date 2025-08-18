@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TeX-for-Gmail: Inline vs Display Fix Verification</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #1a73e8;
+            border-bottom: 3px solid #1a73e8;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #333;
+            margin-top: 30px;
+        }
+        .test-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .test-case {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test-case h3 {
+            margin-top: 0;
+            color: #5f6368;
+            font-size: 16px;
+            border-bottom: 1px solid #e8eaed;
+            padding-bottom: 8px;
+        }
+        .compose-area {
+            min-height: 60px;
+            padding: 12px;
+            border: 1px solid #dadce0;
+            background: white;
+            font-size: 14px;
+            line-height: 1.8;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-family: 'Google Sans', Roboto, sans-serif;
+        }
+        .expected {
+            background: #e8f5e9;
+            padding: 8px;
+            border-radius: 4px;
+            margin: 8px 0;
+            border-left: 3px solid #4caf50;
+        }
+        .expected strong {
+            color: #2e7d32;
+        }
+        .status {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        .status.pass {
+            background: #4caf50;
+            color: white;
+        }
+        .status.fail {
+            background: #f44336;
+            color: white;
+        }
+        .status.pending {
+            background: #ff9800;
+            color: white;
+        }
+        .api-test {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+        }
+        .api-test h4 {
+            margin-top: 0;
+            color: #5f6368;
+        }
+        .url-display {
+            background: #263238;
+            color: #aed581;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            word-break: break-all;
+            margin: 10px 0;
+        }
+        .render-preview {
+            padding: 15px;
+            background: white;
+            border: 1px solid #e8eaed;
+            border-radius: 4px;
+            margin: 10px 0;
+            min-height: 40px;
+            display: flex;
+            align-items: center;
+        }
+        .baseline-test {
+            background: linear-gradient(to bottom, transparent 50%, #ffeb3b 50%);
+            background-size: 100% 2px;
+            background-position: 0 1.1em;
+            padding: 5px 0;
+        }
+        .fix-summary {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #2196f3;
+            margin: 20px 0;
+        }
+        .fix-summary ul {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        .fix-summary li {
+            margin: 5px 0;
+        }
+        pre {
+            background: #263238;
+            color: #aed581;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 13px;
+        }
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        .comparison-table th, .comparison-table td {
+            padding: 12px;
+            text-align: left;
+            border: 1px solid #e8eaed;
+        }
+        .comparison-table th {
+            background: #f8f9fa;
+            font-weight: 600;
+        }
+        .comparison-table tr:nth-child(even) {
+            background: #f8f9fa;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔬 TeX-for-Gmail Fix Verification Suite</h1>
+    
+    <div class="fix-summary">
+        <h3>✅ Applied Fixes:</h3>
+        <ul>
+            <li><strong>CodeCogs API:</strong> Removed invalid <code>\inline</code> prefix</li>
+            <li><strong>DPI Settings:</strong> Reduced inline to 120, display to 180</li>
+            <li><strong>CSS Alignment:</strong> Added vertical-align: middle for inline</li>
+            <li><strong>Wrapper Styling:</strong> Differentiated inline vs display layouts</li>
+            <li><strong>Simple Math:</strong> Updated styling for both modes</li>
+        </ul>
+    </div>
+
+    <h2>📊 Test Cases</h2>
+    
+    <div class="test-grid">
+        <div class="test-case">
+            <h3>Test 1: Basic Inline Math <span class="status pending">TESTING</span></h3>
+            <div class="compose-area" contenteditable="true">
+                The equation $x^2 + y^2 = z^2$ should flow with text.
+            </div>
+            <div class="expected">
+                <strong>Expected:</strong> Small, inline rendering with text baseline alignment
+            </div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 2: Basic Display Math <span class="status pending">TESTING</span></h3>
+            <div class="compose-area" contenteditable="true">
+                The equation $$x^2 + y^2 = z^2$$ should be centered.
+            </div>
+            <div class="expected">
+                <strong>Expected:</strong> Large, centered display rendering
+            </div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 3: Inline Summation <span class="status pending">TESTING</span></h3>
+            <div class="compose-area" contenteditable="true">
+                How do $\sum_i p_i$ and other inline math look?
+            </div>
+            <div class="expected">
+                <strong>Expected:</strong> Compact summation with subscript below
+            </div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 4: Display Summation <span class="status pending">TESTING</span></h3>
+            <div class="compose-area" contenteditable="true">
+                How does $$\sum_i p_i$$ look in display mode?
+            </div>
+            <div class="expected">
+                <strong>Expected:</strong> Full-size summation with subscript below
+            </div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 5: Inline Fraction <span class="status pending">TESTING</span></h3>
+            <div class="compose-area" contenteditable="true">
+                The fraction $\frac{a+b}{c+d}$ should be compact.
+            </div>
+            <div class="expected">
+                <strong>Expected:</strong> Small fraction inline with text
+            </div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 6: Display Fraction <span class="status pending">TESTING</span></h3>
+            <div class="compose-area" contenteditable="true">
+                The fraction $$\frac{a+b}{c+d}$$ should be large.
+            </div>
+            <div class="expected">
+                <strong>Expected:</strong> Full-size fraction, centered
+            </div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 7: Baseline Alignment <span class="status pending">TESTING</span></h3>
+            <div class="compose-area baseline-test" contenteditable="true">
+                Text before $x^2$ text after - check baseline
+            </div>
+            <div class="expected">
+                <strong>Expected:</strong> The 'x' baseline aligns with text (yellow line)
+            </div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 8: Mixed Content <span class="status pending">TESTING</span></h3>
+            <div class="compose-area" contenteditable="true">
+                Inline $e^{i\pi} + 1 = 0$ and display:
+                $$\int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}$$
+                More text here.
+            </div>
+            <div class="expected">
+                <strong>Expected:</strong> First inline, second displayed
+            </div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 9: Bracket Notation Inline <span class="status pending">TESTING</span></h3>
+            <div class="compose-area" contenteditable="true">
+                Using bracket notation: \(a + b = c\) inline
+            </div>
+            <div class="expected">
+                <strong>Expected:</strong> Renders inline with \(...\) notation
+            </div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 10: Bracket Notation Display <span class="status pending">TESTING</span></h3>
+            <div class="compose-area" contenteditable="true">
+                Using bracket notation: \[a^2 + b^2 = c^2\] display
+            </div>
+            <div class="expected">
+                <strong>Expected:</strong> Renders display with \[...\] notation
+            </div>
+        </div>
+    </div>
+
+    <h2>🔍 API Verification</h2>
+    
+    <div class="api-test">
+        <h4>Fixed CodeCogs URLs (After Fix):</h4>
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th>Mode</th>
+                    <th>LaTeX</th>
+                    <th>Generated URL</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Inline</td>
+                    <td><code>$\sum_i p_i$</code></td>
+                    <td><code>https://latex.codecogs.com/png.image?\dpi{120}%20\sum_i%20p_i</code></td>
+                    <td><span class="status pass">CORRECT</span></td>
+                </tr>
+                <tr>
+                    <td>Display</td>
+                    <td><code>$$\sum_i p_i$$</code></td>
+                    <td><code>https://latex.codecogs.com/png.image?\dpi{180}\displaystyle%20\sum_i%20p_i</code></td>
+                    <td><span class="status pass">CORRECT</span></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h2>📈 Visual Comparison</h2>
+    
+    <div class="api-test">
+        <h4>Direct API Rendering Test:</h4>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <div>
+                <h5>Inline Mode (Fixed)</h5>
+                <div class="render-preview">
+                    Text before 
+                    <img src="https://latex.codecogs.com/png.image?\dpi{120}%20x^2%20+%20y^2%20=%20z^2" 
+                         alt="$x^2 + y^2 = z^2$" 
+                         style="vertical-align: middle; display: inline;">
+                    text after
+                </div>
+                <p style="color: green; font-size: 12px;">✓ No prefix, DPI 120, vertical-align: middle</p>
+            </div>
+            
+            <div>
+                <h5>Display Mode (Fixed)</h5>
+                <div class="render-preview" style="justify-content: center;">
+                    <img src="https://latex.codecogs.com/png.image?\dpi{180}\displaystyle%20x^2%20+%20y^2%20=%20z^2" 
+                         alt="$$x^2 + y^2 = z^2$$" 
+                         style="display: inline-block;">
+                </div>
+                <p style="color: green; font-size: 12px;">✓ \displaystyle prefix, DPI 180, centered</p>
+            </div>
+        </div>
+    </div>
+
+    <h2>🧪 Test Instructions</h2>
+    
+    <div class="fix-summary">
+        <h3>To verify the fixes:</h3>
+        <ol>
+            <li>Ensure the extension is loaded with the fixed <code>content.js</code></li>
+            <li>Click in each compose area above</li>
+            <li>Toggle LaTeX rendering ON in the extension</li>
+            <li>Observe the rendering results</li>
+            <li>Check that:
+                <ul>
+                    <li>Single $ equations render inline and small</li>
+                    <li>Double $$ equations render centered and large</li>
+                    <li>Inline equations align with text baseline</li>
+                    <li>Clear visual distinction between modes</li>
+                </ul>
+            </li>
+        </ol>
+    </div>
+
+    <script>
+        // Monitor for LaTeX rendering
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                if (mutation.addedNodes.length) {
+                    mutation.addedNodes.forEach((node) => {
+                        if (node.nodeType === 1) {
+                            if (node.classList && (node.classList.contains('tex-math-inline') || 
+                                                  node.classList.contains('tex-math-display'))) {
+                                const testCase = node.closest('.test-case');
+                                if (testCase) {
+                                    const status = testCase.querySelector('.status');
+                                    const isDisplay = node.classList.contains('tex-math-display');
+                                    
+                                    // Log rendering details
+                                    console.log('LaTeX Rendered:', {
+                                        type: isDisplay ? 'display' : 'inline',
+                                        latex: node.getAttribute('data-latex'),
+                                        wrapper: node,
+                                        img: node.querySelector('img')
+                                    });
+                                    
+                                    // Update status
+                                    if (status) {
+                                        status.textContent = 'RENDERED';
+                                        status.className = 'status pass';
+                                        
+                                        // Verify correct rendering mode
+                                        const latex = node.getAttribute('data-latex');
+                                        const expectedDisplay = testCase.textContent.includes('$$');
+                                        if ((expectedDisplay && !isDisplay) || (!expectedDisplay && isDisplay)) {
+                                            status.textContent = 'MODE ERROR';
+                                            status.className = 'status fail';
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+            });
+        });
+
+        // Observe all compose areas
+        document.querySelectorAll('.compose-area').forEach(area => {
+            observer.observe(area, { childList: true, subtree: true });
+        });
+
+        // Add timestamp
+        const timestamp = new Date().toLocaleString();
+        console.log(`Test suite loaded at ${timestamp}`);
+        console.log('Monitoring for LaTeX rendering...');
+    </script>
+</body>
+</html>
