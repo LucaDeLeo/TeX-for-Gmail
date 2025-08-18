@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test: Inline vs Display LaTeX Rendering</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .test-case {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            background: #f9f9f9;
+        }
+        .compose-area {
+            min-height: 100px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            background: white;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        h2 {
+            color: #333;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 5px;
+        }
+        .expected {
+            color: green;
+            font-weight: bold;
+        }
+        .issue {
+            color: red;
+            font-weight: bold;
+        }
+        pre {
+            background: #f4f4f4;
+            padding: 10px;
+            border-left: 3px solid #007bff;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>TeX-for-Gmail: Inline vs Display Mode Testing</h1>
+    
+    <div class="test-case">
+        <h2>Test Case 1: Inline Math with Single Dollar Signs</h2>
+        <p><strong>Input:</strong></p>
+        <pre>How do $$\sum_i p_i$$ and $\sum_i p_i$ look?</pre>
+        <p><strong>Expected:</strong> The second sum (with single $) should render inline with text baseline aligned</p>
+        <p><strong>Issue from GitHub:</strong> Currently both render in display mode</p>
+        <div class="compose-area" contenteditable="true">
+            How do $$\sum_i p_i$$ and $\sum_i p_i$ look?
+        </div>
+    </div>
+
+    <div class="test-case">
+        <h2>Test Case 2: Display Math with Double Dollar Signs</h2>
+        <p><strong>Input:</strong></p>
+        <pre>The equation $$x^2 + y^2 = z^2$$ should be centered and large</pre>
+        <p><strong>Expected:</strong> Equation should render in display mode (larger, centered)</p>
+        <div class="compose-area" contenteditable="true">
+            The equation $$x^2 + y^2 = z^2$$ should be centered and large
+        </div>
+    </div>
+
+    <div class="test-case">
+        <h2>Test Case 3: Mixed Inline and Display</h2>
+        <p><strong>Input:</strong></p>
+        <pre>Inline math like $e^{i\pi} + 1 = 0$ flows with text, while
+$$\int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}$$
+is displayed prominently.</pre>
+        <p><strong>Expected:</strong> First equation inline, second equation displayed</p>
+        <div class="compose-area" contenteditable="true">
+            Inline math like $e^{i\pi} + 1 = 0$ flows with text, while
+$$\int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}$$
+is displayed prominently.
+        </div>
+    </div>
+
+    <div class="test-case">
+        <h2>Test Case 4: Baseline Alignment Test</h2>
+        <p><strong>Input:</strong></p>
+        <pre>We want the baseline of the 'x' in $x^2$ to be the same as the other letters in the sentence</pre>
+        <p><strong>Expected:</strong> The baseline of 'x' should align with surrounding text</p>
+        <p class="issue">Issue: Currently the equation baseline is off</p>
+        <div class="compose-area" contenteditable="true">
+            We want the baseline of the 'x' in $x^2$ to be the same as the other letters in the sentence
+        </div>
+    </div>
+
+    <div class="test-case">
+        <h2>Test Case 5: Bracket Notation</h2>
+        <p><strong>Input:</strong></p>
+        <pre>Inline: \(a + b = c\) and Display: \[a^2 + b^2 = c^2\]</pre>
+        <p><strong>Expected:</strong> \(...\) renders inline, \[...\] renders display</p>
+        <div class="compose-area" contenteditable="true">
+            Inline: \(a + b = c\) and Display: \[a^2 + b^2 = c^2\]
+        </div>
+    </div>
+
+    <div class="test-case">
+        <h2>Test Case 6: Size Comparison</h2>
+        <p><strong>Input:</strong></p>
+        <pre>Inline $\frac{1}{2}$ vs Display $$\frac{1}{2}$$</pre>
+        <p><strong>Expected:</strong> Display version should be noticeably larger</p>
+        <div class="compose-area" contenteditable="true">
+            Inline $\frac{1}{2}$ vs Display $$\frac{1}{2}$$
+        </div>
+    </div>
+
+    <script>
+        // This will help us see what the extension is doing
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                if (mutation.addedNodes.length) {
+                    mutation.addedNodes.forEach((node) => {
+                        if (node.nodeType === 1) { // Element node
+                            if (node.classList && (node.classList.contains('tex-math-inline') || 
+                                                  node.classList.contains('tex-math-display'))) {
+                                console.log('LaTeX rendered:', {
+                                    type: node.classList.contains('tex-math-display') ? 'display' : 'inline',
+                                    latex: node.getAttribute('data-latex'),
+                                    element: node
+                                });
+                            }
+                        }
+                    });
+                }
+            });
+        });
+
+        // Observe all compose areas
+        document.querySelectorAll('.compose-area').forEach(area => {
+            observer.observe(area, { childList: true, subtree: true });
+        });
+    </script>
+</body>
+</html>

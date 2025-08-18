@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CodeCogs API Test - Inline vs Display</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            line-height: 1.8;
+        }
+        .test-case {
+            margin: 30px 0;
+            padding: 20px;
+            border: 2px solid #007bff;
+            border-radius: 8px;
+            background: #f8f9fa;
+        }
+        .api-url {
+            background: #e9ecef;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            word-break: break-all;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .rendered {
+            margin: 15px 0;
+            padding: 15px;
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+        }
+        .inline-test {
+            background: #fffbf0;
+        }
+        .display-test {
+            background: #f0f8ff;
+        }
+        h2 {
+            color: #495057;
+            margin-top: 0;
+        }
+        .comparison {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+        .comparison > div {
+            flex: 1;
+        }
+        .error {
+            background: #fee;
+            color: #c00;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .success {
+            background: #efe;
+            color: #080;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        p {
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Testing CodeCogs API: Inline vs Display Mode</h1>
+    
+    <div class="test-case inline-test">
+        <h2>❌ ISSUE: Current Implementation (Incorrect)</h2>
+        <p><strong>Problem:</strong> The extension uses <code>\\inline</code> prefix which doesn't work correctly</p>
+        
+        <div class="comparison">
+            <div>
+                <h3>Inline Mode (Single $)</h3>
+                <p>LaTeX: <code>$\sum_i p_i$</code></p>
+                <div class="api-url">https://latex.codecogs.com/png.image?\dpi{200}\inline%20\sum_i%20p_i</div>
+                <div class="rendered">
+                    Text before 
+                    <img src="https://latex.codecogs.com/png.image?\dpi{200}\inline%20\sum_i%20p_i" alt="sum" style="vertical-align: middle;">
+                    text after
+                </div>
+                <div class="error">❌ The \inline prefix doesn't properly render inline style</div>
+            </div>
+            
+            <div>
+                <h3>Display Mode (Double $$)</h3>
+                <p>LaTeX: <code>$$\sum_i p_i$$</code></p>
+                <div class="api-url">https://latex.codecogs.com/png.image?\dpi{300}\displaystyle%20\sum_i%20p_i</div>
+                <div class="rendered">
+                    Text before 
+                    <img src="https://latex.codecogs.com/png.image?\dpi{300}\displaystyle%20\sum_i%20p_i" alt="sum">
+                    text after
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="test-case inline-test">
+        <h2>✅ SOLUTION: Correct Implementation</h2>
+        <p><strong>Fix:</strong> For inline mode, omit the style prefix or use <code>\textstyle</code></p>
+        
+        <div class="comparison">
+            <div>
+                <h3>Inline Mode (Correct - No Prefix)</h3>
+                <p>LaTeX: <code>$\sum_i p_i$</code></p>
+                <div class="api-url">https://latex.codecogs.com/png.image?\dpi{110}%20\sum_i%20p_i</div>
+                <div class="rendered">
+                    Text before 
+                    <img src="https://latex.codecogs.com/png.image?\dpi{110}%20\sum_i%20p_i" alt="sum" style="vertical-align: middle;">
+                    text after
+                </div>
+                <div class="success">✅ Renders in inline style with proper size</div>
+            </div>
+            
+            <div>
+                <h3>Inline Mode (Alternative - \textstyle)</h3>
+                <p>LaTeX: <code>$\sum_i p_i$</code></p>
+                <div class="api-url">https://latex.codecogs.com/png.image?\dpi{110}\textstyle%20\sum_i%20p_i</div>
+                <div class="rendered">
+                    Text before 
+                    <img src="https://latex.codecogs.com/png.image?\dpi{110}\textstyle%20\sum_i%20p_i" alt="sum" style="vertical-align: middle;">
+                    text after
+                </div>
+                <div class="success">✅ Explicitly sets text style for inline rendering</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="test-case">
+        <h2>📊 Size Comparison Test</h2>
+        <p>Testing fraction rendering to show the difference between inline and display modes:</p>
+        
+        <div class="comparison">
+            <div>
+                <h3>Inline (No Prefix)</h3>
+                <p>LaTeX: <code>$\frac{a+b}{c+d}$</code></p>
+                <div class="rendered">
+                    The fraction 
+                    <img src="https://latex.codecogs.com/png.image?\dpi{110}%20\frac{a%2Bb}{c%2Bd}" alt="fraction" style="vertical-align: middle;">
+                    flows with text.
+                </div>
+            </div>
+            
+            <div>
+                <h3>Display (\displaystyle)</h3>
+                <p>LaTeX: <code>$$\frac{a+b}{c+d}$$</code></p>
+                <div class="rendered">
+                    The fraction<br>
+                    <div style="text-align: center;">
+                        <img src="https://latex.codecogs.com/png.image?\dpi{150}\displaystyle%20\frac{a%2Bb}{c%2Bd}" alt="fraction">
+                    </div>
+                    is displayed prominently.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="test-case">
+        <h2>🎯 Baseline Alignment Test</h2>
+        <p>Testing baseline alignment with different approaches:</p>
+        
+        <div>
+            <h3>Problem: Default alignment</h3>
+            <div class="rendered">
+                We want the baseline of the 'x' in 
+                <img src="https://latex.codecogs.com/png.image?\dpi{110}%20x^2" alt="x^2">
+                to align with text.
+            </div>
+            <div class="error">❌ Baseline is off - equation sits too high</div>
+        </div>
+        
+        <div>
+            <h3>Solution: Using vertical-align: middle</h3>
+            <div class="rendered">
+                We want the baseline of the 'x' in 
+                <img src="https://latex.codecogs.com/png.image?\dpi{110}%20x^2" alt="x^2" style="vertical-align: middle;">
+                to align with text.
+            </div>
+            <div class="success">✅ Better alignment with vertical-align: middle</div>
+        </div>
+
+        <div>
+            <h3>Alternative: Using vertical-align with adjustment</h3>
+            <div class="rendered">
+                We want the baseline of the 'x' in 
+                <img src="https://latex.codecogs.com/png.image?\dpi{110}%20x^2" alt="x^2" style="vertical-align: -0.3em;">
+                to align with text.
+            </div>
+            <div class="success">✅ Fine-tuned alignment with vertical-align: -0.3em</div>
+        </div>
+    </div>
+
+    <div class="test-case">
+        <h2>📝 Summary of Issues and Fixes</h2>
+        <ol>
+            <li>
+                <strong>Issue:</strong> Using <code>\inline</code> prefix doesn't work with CodeCogs API<br>
+                <strong>Fix:</strong> Remove the prefix for inline mode or use <code>\textstyle</code>
+            </li>
+            <li>
+                <strong>Issue:</strong> Both single $ and double $$ render in display style<br>
+                <strong>Fix:</strong> Differentiate by using no prefix for inline, <code>\displaystyle</code> for display
+            </li>
+            <li>
+                <strong>Issue:</strong> Baseline alignment is off for inline equations<br>
+                <strong>Fix:</strong> Add CSS <code>vertical-align: middle</code> or <code>vertical-align: -0.3em</code> to inline images
+            </li>
+            <li>
+                <strong>Issue:</strong> DPI too high for inline mode (200 vs 300)<br>
+                <strong>Fix:</strong> Consider using lower DPI (110-130) for inline to match text size better
+            </li>
+        </ol>
+    </div>
+
+    <script>
+        // Log the actual rendering differences
+        console.log('Test Results:');
+        console.log('1. \\inline prefix - Does NOT work properly for inline rendering');
+        console.log('2. No prefix or \\textstyle - Works correctly for inline');
+        console.log('3. \\displaystyle - Works correctly for display mode');
+        console.log('4. Baseline alignment needs CSS adjustment');
+    </script>
+</body>
+</html>

@@ -20,8 +20,9 @@
   background-color: #d4f8d4;
   padding: 4px 8px;
   border-radius: 3px;
-  display: inline-block;
-  margin: 4px 0;
+  display: block;          /* Display math is block-level */
+  text-align: center;      /* Center display equations */
+  margin: 1em 0;           /* Vertical spacing around display math */
   vertical-align: middle;
   line-height: 1;
   /* Performance optimization - include border for transitions */
@@ -40,7 +41,7 @@
 
 /* Ensure images within math elements align properly */
 .tex-math-inline img {
-  vertical-align: -0.4em; /* Better baseline alignment for inline equations */
+  vertical-align: middle;  /* Proper baseline alignment for inline equations */
   max-width: 100%;
   height: auto;
 }
