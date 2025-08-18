@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TeX for Gmail - Resolution Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .email-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .email-compose {
+            margin-bottom: 30px;
+        }
+        .email-body {
+            border: 1px solid #ddd;
+            padding: 15px;
+            min-height: 200px;
+            background: #fff;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        h2 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        .test-equations {
+            margin: 20px 0;
+        }
+        .equation-row {
+            margin: 15px 0;
+            padding: 10px;
+            background: #f9f9f9;
+            border-left: 3px solid #4285f4;
+        }
+        .label {
+            font-weight: bold;
+            color: #666;
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <h2>TeX for Gmail - Image Resolution QA Test</h2>
+        
+        <div class="email-compose">
+            <div class="label">Test Subject: Verifying LaTeX Image Resolution Fix</div>
+            <div class="email-body" contenteditable="true">
+                <div class="test-equations">
+                    <div class="equation-row">
+                        <div class="label">Inline Equation (110 DPI default):</div>
+                        <p>The derivative $\frac{d}{dt}\langle\alpha^{(a)}, \alpha^{b)}\rangle = \langle\{\alpha^{(a)}, \partial^b\}H(\alpha)\rangle$ should be sharp and readable inline with text.</p>
+                    </div>
+                    
+                    <div class="equation-row">
+                        <div class="label">Display Equation (300 DPI default):</div>
+                        <p>$$\frac{d}{dt}\langle\alpha^{(a)}, \alpha^{b)}\rangle = \langle\{\alpha^{(a)}, \partial^b\}H(\alpha)\rangle$$</p>
+                    </div>
+                    
+                    <div class="equation-row">
+                        <div class="label">Complex Display Equation:</div>
+                        <p>$$\int_{-\infty}^{\infty} e^{-x^2} dx = \sqrt{\pi}$$</p>
+                        <p>$$\sum_{n=1}^{\infty} \frac{1}{n^2} = \frac{\pi^2}{6}$$</p>
+                    </div>
+                    
+                    <div class="equation-row">
+                        <div class="label">Matrix Equation (High Detail Test):</div>
+                        <p>$$\begin{pmatrix} a & b \\ c & d \end{pmatrix} \begin{pmatrix} x \\ y \end{pmatrix} = \begin{pmatrix} ax + by \\ cx + dy \end{pmatrix}$$</p>
+                    </div>
+                    
+                    <div class="equation-row">
+                        <div class="label">Fine Detail Test (Subscripts/Superscripts):</div>
+                        <p>The expression $x_{i,j}^{2n+1}$ and $$\lim_{n \to \infty} \left(1 + \frac{1}{n}\right)^n = e$$ should show clear subscripts and superscripts.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div style="margin-top: 20px; padding: 15px; background: #e8f0fe; border-radius: 4px;">
+            <div class="label">Expected Results:</div>
+            <ul style="margin: 10px 0; padding-left: 20px;">
+                <li>Inline equations ($ ... $) should render at 110 DPI - balanced for text integration</li>
+                <li>Display equations ($$ ... $$) should render at 300 DPI - high quality for complex math</li>
+                <li>All mathematical symbols should be sharp and clear</li>
+                <li>Subscripts and superscripts should be clearly distinguishable</li>
+                <li>No blurriness or pixelation should be visible</li>
+            </ul>
+        </div>
+    </div>
+
+    <script src="content.js"></script>
+    <script>
+        // Initialize the extension after page load
+        window.addEventListener('load', () => {
+            console.log('Test page loaded - TeX for Gmail extension should process equations');
+        });
+    </script>
+</body>
+</html>
