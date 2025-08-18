@@ -31,7 +31,8 @@
 - **🎯 Cursor Preservation** - Maintains exact cursor position through all operations
 - **🧹 Memory Management** - Comprehensive cleanup prevents memory leaks
 - **🔒 Race Condition Prevention** - Mutex patterns ensure stable operation
-- **📨 Smart Send Interceptor** - Automatically renders LaTeX when sending (if toggle is OFF)
+- **📨 Customizable Send Behavior** - Choose how LaTeX is handled when sending emails
+- **⚙️ Options Page** - Configure rendering preferences and behavior
 - **💻 Code Block Protection** - LaTeX in `<code>` and `<pre>` blocks is not rendered
 - **💱 Currency Detection** - Intelligently distinguishes $100 from $x = 100$
 - **🔍 Pattern Normalization** - Ensures consistent rendering of all equations
@@ -60,6 +61,17 @@
    - Display math: `$$\int_0^1 f(x) dx$$`
 4. **Watch it render** automatically after ~500ms
 5. **Toggle rendering** ON/OFF with the TeX button
+
+### Configuration
+
+**Access Options:** Right-click the extension icon → "Options" or visit `chrome://extensions` → TeX for Gmail → Details → Extension options
+
+Customizable settings include:
+- Send behavior (Always/Never/Ask)
+- Rendering server selection
+- Image quality (DPI)
+- UI controls visibility
+- Font preferences for simple math
 
 ## 📖 User Guide
 
@@ -93,11 +105,26 @@ LaTeX within code blocks is NOT rendered:
 ```
 
 #### Smart Send Behavior
-When sending an email with toggle OFF:
-1. Extension detects LaTeX content
-2. Automatically renders equations
-3. Sends email with rendered images
-4. Restores source view after sending
+
+The extension offers three modes for handling LaTeX when sending emails:
+
+**Always Render** (Auto-convert)
+- Automatically renders all LaTeX equations when sending
+- No user interaction required
+- Ideal for frequent LaTeX users
+
+**Never Render** (Send as-is)
+- Sends LaTeX source code without rendering
+- Useful when recipients have LaTeX rendering capabilities
+- No automatic conversion
+
+**Ask Each Time** (Default)
+- Shows a confirmation dialog when LaTeX is detected
+- Options: "Render and Send", "Send without rendering", or "Cancel"
+- Can remember choice for current session
+- Best for mixed use cases
+
+*Configure in extension options (right-click extension icon → Options)*
 
 ## ⚠️ Known Limitations
 
@@ -180,7 +207,14 @@ A: Images have white backgrounds. Dark mode support planned.
 A: No - equations are converted to images visible to anyone.
 
 **Q: Can I customize the rendering?**  
-A: Not currently. Customization planned for future versions.
+A: Yes! Access the Options page to configure:
+- Send behavior (Always/Never/Ask)
+- Image quality (DPI settings)
+- Rendering server choice
+- UI preferences
+
+**Q: Can I turn off auto-conversion without disabling the extension?**  
+A: Yes! Set the send behavior to "Never" or "Ask" in the Options page to control when LaTeX is rendered.
 
 **Q: Is there a keyboard shortcut?**  
 A: Not yet. Planned for future release.
