@@ -372,6 +372,7 @@
   const TeXForGmail = {
     observer: null,
     composeButtons: new WeakMap(),
+    readButtons: new WeakMap(), // Track buttons in read mode
     processingStates: new WeakMap(),
     composeObservers: new WeakMap(), // Track observers per compose area
     renderTimeouts: new WeakMap(), // Track render timeouts per compose area
@@ -417,6 +418,79 @@
       this.setupObserver();
       // Check for existing compose windows immediately
       checkForComposeWindow();
+      
+      // Set up global keyboard event handler
+      this.setupKeyboardHandler();
+    },
+    // Styles and helpers for non-destructive read-mode rendering
+    ensureOverlayStyles() {
+      if (document.getElementById('tex-read-overlay-styles')) return;
+      const style = document.createElement('style');
+      style.id = 'tex-read-overlay-styles';
+      style.textContent = `
+        .tex-read-overlay { 
+          position: absolute; 
+          inset: 0; 
+          width: 100%; 
+          pointer-events: none; 
+          background: transparent !important; 
+          z-index: 1;
+        }
+        .tex-read-overlay-content { 
+          position: relative;
+          pointer-events: none;
+        }
+        /* Hide original text but preserve layout */
+        .tex-read-overlay-content > * { 
+          visibility: hidden !important; 
+        }
+        /* Show only rendered math elements */
+        .tex-read-overlay .tex-math-inline,
+        .tex-read-overlay .tex-math-display,
+        .tex-read-overlay .tex-math-inline *,
+        .tex-read-overlay .tex-math-display * { 
+          visibility: visible !important; 
+          pointer-events: auto;
+        }
+      `;
+      document.head.appendChild(style);
+    },
+    getReadOverlay(emailContainer) {
+      // Make container positioning context
+      const computed = window.getComputedStyle(emailContainer);
+      if (!['relative','absolute','fixed','sticky'].includes(computed.position)) {
+        emailContainer.style.position = 'relative';
+      }
+      // Find or create overlay
+      let overlay = emailContainer.querySelector('.tex-read-overlay');
+      if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.className = 'tex-read-overlay';
+        const content = document.createElement('div');
+        content.className = 'tex-read-overlay-content';
+        overlay.appendChild(content);
+        emailContainer.appendChild(overlay);
+      }
+      return overlay;
+    },
+    removeReadOverlay(emailContainer) {
+      const overlay = emailContainer.querySelector('.tex-read-overlay');
+      if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    },
+    async renderReadOverlay(emailContainer) {
+      try {
+        this.ensureOverlayStyles();
+        const overlay = this.getReadOverlay(emailContainer);
+        const content = overlay.querySelector('.tex-read-overlay-content');
+        // Copy current email HTML into overlay content (children only)
+        content.innerHTML = emailContainer.innerHTML;
+        // Run one-time render on overlay copy
+        await detectAndRenderLatex(content, { oneTimeRender: true });
+        return true;
+      } catch (e) {
+        this.log('Error rendering read overlay:', e);
+        return false;
+      }
     },
     log(message, ...args) {
       if (this.debugMode || message.includes('Error')) {
@@ -453,6 +527,8 @@
         showComposeButton: true,
         showReadButton: true,
         enableKeyboardShortcuts: true,
+        enableNaiveTeX: false,
+        enableSimpleMath: true,
         rememberSendChoice: false,
         lastSendChoice: null
       };
@@ -465,6 +541,13 @@
           if (settings.dpiInline) CONFIG.dpi.inline = settings.dpiInline;
           if (settings.dpiDisplay) CONFIG.dpi.display = settings.dpiDisplay;
           if (settings.renderServer) this.serverPreference = settings.renderServer;
+          
+          // Set naive TeX mode based on setting
+          if (settings.enableNaiveTeX) {
+            this.naiveTexMode = true;
+            this.log('Naive TeX mode enabled from settings');
+          }
+          
           this.log('Settings loaded:', settings);
           resolve(settings);
         });
@@ -1234,15 +1317,21 @@
       /\b([a-zA-Z])\^(\{[^}]+\}|\w+)/g,  // x^2 or x^{10}
       /\b([a-zA-Z])_(\{[^}]+\}|\w+)/g,   // a_n or a_{10}
       /\be\^\(([^)]+)\)/g,                // e^(i*pi)
-      /\\(alpha|beta|gamma|delta|epsilon|theta|lambda|mu|pi|sigma|omega)/gi
+      /\\(alpha|beta|gamma|delta|epsilon|theta|lambda|mu|pi|sigma|omega|Alpha|Beta|Gamma|Delta|Epsilon|Theta|Lambda|Mu|Pi|Sigma|Omega)/g,
+      /\b\d+\/\d+\b/g,                    // Fractions like 1/2, 3/4
+      /\b([a-zA-Z])_\d+\^\d+/g            // Combined subscript and superscript like x_1^2
     ];
     
     // Check if text contains potential naive TeX (avoid false positives with currency)
     const currencyPattern = /\$[\d,]+\.?\d*/g;
     const hasCurrency = currencyPattern.test(text);
     
-    if (hasCurrency) {
-      // Skip if text primarily contains currency
+    // Also avoid URLs and file paths
+    const urlPattern = /https?:\/\/|www\.|\/\w+\.\w+/gi;
+    const hasUrl = urlPattern.test(text);
+    
+    if (hasCurrency || hasUrl) {
+      // Skip if text primarily contains currency or URLs
       return null;
     }
     
@@ -1674,17 +1763,19 @@
   }
 
   // Task 3, 5: Main rendering function with double-render prevention
-  function detectAndRenderLatex(composeArea) {
+  function detectAndRenderLatex(composeArea, options = {}) {
     if (!composeArea) return false;
     
-    // Prevent concurrent rendering on same compose area
-    if (composeArea.getAttribute('data-tex-processing') === 'true') {
+    const { oneTimeRender = false, isReadMode = false } = options;
+    
+    // Skip concurrent processing check for read mode
+    if (!isReadMode && composeArea.getAttribute('data-tex-processing') === 'true') {
       TeXForGmail.log('Already processing this compose area, skipping');
       return false;
     }
     
-    // Task 4 (Story 1.3): Check toggle state before rendering
-    const isRenderingEnabled = getToggleState(composeArea);
+    // Task 4 (Story 1.3): Check toggle state before rendering (skip for one-time renders)
+    const isRenderingEnabled = oneTimeRender ? 'api' : getToggleState(composeArea);
     if (!isRenderingEnabled) {
       TeXForGmail.log('Rendering disabled by toggle, skipping');
       return false;
@@ -1692,6 +1783,12 @@
     
     // Set processing flag
     composeArea.setAttribute('data-tex-processing', 'true');
+    
+    // Store original content for read mode (to allow restoration)
+    if (isReadMode && !TeXForGmail.originalContent.has(composeArea)) {
+      TeXForGmail.originalContent.set(composeArea, composeArea.innerHTML);
+      TeXForGmail.log('Stored original content for read mode');
+    }
     
     try {
       const textNodes = findTextNodes(composeArea);
@@ -1921,7 +2018,7 @@
             let mathElement = null;
             
             // Check if this is a naive TeX match or we should use Simple Math mode
-            if (match.isNaive || TeXForGmail.simpleMode) {
+            if ((match.isNaive || TeXForGmail.simpleMode) && (TeXForGmail.settings?.enableSimpleMath)) {
               mathElement = renderSimpleMath(match.latex, match.type === 'display');
             } else {
               // Use image-based rendering with server selection
@@ -2565,7 +2662,7 @@
     }
   }
 
-  // Check for compose windows
+  // Check for compose windows and reading views
   function checkForComposeWindow() {
     // Look for all compose windows - use Set to avoid duplicates
     const processedToolbars = new Set();
@@ -2586,6 +2683,128 @@
         cleanupToolbarButton(toolbar);
       }
     });
+    
+    // Also check for reading views
+    checkForReadingView();
+  }
+  
+  // Check for email reading views and add buttons if needed
+  function checkForReadingView() {
+    // Email content selectors: .ii (message body), .a3s (conversation), .adP (expanded)
+    const emailContainers = document.querySelectorAll('.ii, .a3s, .adP');
+    
+    emailContainers.forEach(container => {
+      // Find the email's toolbar - check multiple possible locations
+      const toolbarSelectors = ['.btC', '.aqK', '.G-atb', '.iH > div', '.aaq'];
+      let toolbar = null;
+      
+      // Try to find a toolbar associated with this email
+      for (const selector of toolbarSelectors) {
+        const parent = container.closest('.h7, .adn, .Bs');
+        if (parent) {
+          toolbar = parent.querySelector(selector);
+          if (toolbar) break;
+        }
+      }
+      
+      // If we found a toolbar and haven't already added a button
+      if (toolbar && !TeXForGmail.readButtons.get(toolbar)) {
+        TeXForGmail.log('Found email reading view, adding button');
+        addReadModeButton(container, toolbar);
+      }
+    });
+    
+    // Clean up buttons for closed email views
+    TeXForGmail.readButtons.forEach((button, toolbar) => {
+      if (!document.body.contains(toolbar)) {
+        TeXForGmail.readButtons.delete(toolbar);
+        TeXForGmail.log('Cleaned up read mode button for removed toolbar');
+      }
+    });
+  }
+  
+  // Add TeX button to email reading mode
+  async function addReadModeButton(emailContainer, toolbar) {
+    // Check settings for button visibility
+    const settings = await TeXForGmail.getSettings();
+    if (!settings.showReadButton) {
+      TeXForGmail.log('Read mode button disabled in settings');
+      return;
+    }
+    
+    // Check if button already exists
+    if (TeXForGmail.readButtons.get(toolbar)) {
+      TeXForGmail.log('Read mode button already exists for this toolbar');
+      return;
+    }
+    
+    // Create button similar to compose button
+    const button = createTexButton();
+    
+    // Store button reference
+    TeXForGmail.readButtons.set(toolbar, button);
+    
+    // Button click handler for read mode
+    button.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      TeXForGmail.log('Read mode TeX button clicked');
+      
+      // Check if already processing
+      if (TeXForGmail.processingStates.get(button)) {
+        TeXForGmail.log('Already processing, ignoring click');
+        return;
+      }
+      
+      // Set processing state
+      TeXForGmail.processingStates.set(button, true);
+      
+      try {
+        // Toggle button state
+        const isActive = button.getAttribute('aria-pressed') === 'true';
+        
+        if (!isActive) {
+          // Activate and render
+          button.style.background = '#e3f2fd';
+          button.setAttribute('aria-pressed', 'true');
+          
+          // Render LaTeX in the email via non-destructive overlay
+          await TeXForGmail.renderReadOverlay(emailContainer);
+          
+          showToast('LaTeX rendered in email', 'success');
+          TeXForGmail.log('Read mode LaTeX rendering complete');
+        } else {
+          // Deactivate - restore original content if possible
+          button.style.background = '';
+          button.setAttribute('aria-pressed', 'false');
+          
+          // Remove overlay (original content remains untouched)
+          TeXForGmail.removeReadOverlay(emailContainer);
+          
+          showToast('LaTeX rendering disabled', 'info');
+        }
+      } catch (error) {
+        TeXForGmail.log('Error in read mode button handler:', error);
+        showToast('Error rendering LaTeX', 'error');
+      } finally {
+        // Clear processing state
+        TeXForGmail.processingStates.delete(button);
+      }
+    });
+    
+    // Find appropriate place to insert button
+    const buttonGroup = toolbar.querySelector('.aaq, .btC, .G-atb');
+    if (buttonGroup) {
+      // Add some spacing
+      button.style.marginLeft = '8px';
+      buttonGroup.appendChild(button);
+    } else {
+      // Fallback: add to toolbar directly
+      toolbar.appendChild(button);
+    }
+    
+    TeXForGmail.log('Read mode TeX button added to toolbar');
   }
 
   // Set up mutation observer with debouncing
@@ -2598,6 +2817,353 @@
     
     // Set up send button interceptor for ensuring rendered math in emails
     this.setupSendInterceptor();
+    
+    // Set up More menu observer for Gmail integration
+    this.setupMoreMenuObserver();
+  };
+  
+  // Set up observer for Gmail More menu integration
+  TeXForGmail.setupMoreMenuObserver = function() {
+    let menuObserver = null;
+    
+    // Function to check if email contains LaTeX
+    const containsLatex = (emailElement) => {
+      if (!emailElement) return false;
+      const text = emailElement.textContent || '';
+      // Check for LaTeX delimiters
+      return /\$\$[\s\S]+?\$\$|\$[^\$\n]+?\$|\\[\[\(][\s\S]+?\\[\]\)]|\\begin\{[\s\S]+?\\end\{/g.test(text);
+    };
+    
+    // Function to add menu item
+    const addRenderMenuItem = (menu, emailElement) => {
+      // Check if already added
+      if (menu.querySelector('.tex-gmail-menu-item')) return;
+      
+      // Find existing menu items to clone structure
+      const existingItem = menu.querySelector('.J-N');
+      if (!existingItem) return;
+      
+      // Create new menu item
+      const menuItem = existingItem.cloneNode(true);
+      menuItem.className = existingItem.className + ' tex-gmail-menu-item';
+      
+      // Update text - look for text element
+      const textElement = menuItem.querySelector('[role="menuitem"]') || menuItem;
+      textElement.textContent = 'Render LaTeX';
+      
+      // Add click handler
+      menuItem.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        TeXForGmail.log('More menu: Render LaTeX clicked');
+        
+        // Close the menu
+        const backdrop = document.querySelector('.J-M-Jz');
+        if (backdrop) backdrop.click();
+        
+        // Render LaTeX in the email via non-destructive overlay
+        showToast('Rendering LaTeX in email...', 'info');
+        await TeXForGmail.renderReadOverlay(emailElement);
+        showToast('LaTeX rendering complete', 'success');
+      });
+      
+      // Add separator if needed
+      const separator = menu.querySelector('.J-Kh');
+      if (separator) {
+        const newSeparator = separator.cloneNode(true);
+        menu.appendChild(newSeparator);
+      }
+      
+      // Add the menu item
+      menu.appendChild(menuItem);
+      TeXForGmail.log('Added Render LaTeX to More menu');
+    };
+    
+    // Observer for More menu appearance
+    const moreMenuObserver = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+          if (node.nodeType === 1) { // Element node
+            // Check for menu container
+            const menu = node.querySelector?.('.J-M') || (node.classList?.contains('J-M') ? node : null);
+            if (menu) {
+              TeXForGmail.log('More menu detected');
+              
+              // Find the associated email element
+              const emailElement = document.querySelector('.ii:hover, .a3s:hover, .adP:hover') ||
+                                  document.querySelector('.ii, .a3s, .adP');
+              
+              // Only add if email contains LaTeX
+              if (emailElement && containsLatex(emailElement)) {
+                addRenderMenuItem(menu, emailElement);
+              }
+            }
+          }
+        });
+      });
+    });
+    
+    // Start observing
+    moreMenuObserver.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+    
+    this.moreMenuObserver = moreMenuObserver;
+    this.log('More menu observer initialized');
+  };
+  
+  // Set up global keyboard event handler
+  TeXForGmail.setupKeyboardHandler = function() {
+    if (!this.keyboardHandler) {
+      this.keyboardHandler = this.handleGlobalKeyboard.bind(this);
+      document.addEventListener('keydown', this.keyboardHandler, true);
+      this.log('Keyboard handler registered');
+    }
+  };
+  
+  // Handle global keyboard events for LaTeX rendering
+  TeXForGmail.handleGlobalKeyboard = async function(e) {
+    // Load settings
+    const settings = await this.getSettings();
+    const isShortcutKey = (e.key === 'F8' || e.key === 'F9');
+    const hasModifier = e.ctrlKey || e.metaKey;
+
+    // If shortcuts are disabled, show a warning toast when user presses the keys
+    if (!settings?.enableKeyboardShortcuts && isShortcutKey) {
+      const shortcutType = hasModifier ? 'continuous' : 'single';
+      showToast(`Keyboard shortcuts are disabled. Enable them in TeX for Gmail settings to use ${shortcutType} rendering.`, 'warning');
+      return;
+    }
+    
+    // F8: Rich Math once
+    if (e.key === 'F8' && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      const target = this.getActiveTarget();
+      if (target) {
+        this.log('F8 pressed: Rendering Rich Math once');
+        showToast('Rendering LaTeX as Rich Math...', 'info');
+        await this.renderOnceRichMath(target);
+        showToast('Rich Math rendering complete', 'success');
+      }
+    }
+    // F9: Simple Math once  
+    else if (e.key === 'F9' && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      const target = this.getActiveTarget();
+      if (target) {
+        if (!settings.enableSimpleMath) {
+          showToast('Simple Math mode is disabled in settings', 'warning');
+          return;
+        }
+        this.log('F9 pressed: Rendering Simple Math once');
+        showToast('Rendering LaTeX as Simple Math...', 'info');
+        await this.renderOnceSimpleMath(target);
+        showToast('Simple Math rendering complete', 'success');
+      }
+    }
+    // Cmd/Ctrl+F8: Toggle continuous Rich Math
+    else if (e.key === 'F8' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.log('Cmd/Ctrl+F8 pressed: Toggling continuous Rich Math');
+      await this.toggleContinuousMode('rich');
+    }
+    // Cmd/Ctrl+F9: Toggle continuous Simple Math
+    else if (e.key === 'F9' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.log('Cmd/Ctrl+F9 pressed: Toggling continuous Simple Math');
+      if (!settings.enableSimpleMath) {
+        showToast('Simple Math mode is disabled in settings', 'warning');
+        return;
+      }
+      await this.toggleContinuousMode('simple');
+    }
+  };
+  
+  // Get the active target element (compose or read mode)
+  TeXForGmail.getActiveTarget = function() {
+    // Check if we're in a compose window
+    const activeElement = document.activeElement;
+    
+    // First check if focus is in a compose area
+    const composeArea = activeElement?.closest('.M9, .AD, .aoI, [contenteditable="true"]');
+    if (composeArea) {
+      this.log('Active target: Compose area');
+      return composeArea;
+    }
+    
+    // Check if we're viewing an email (read mode)
+    const emailContainers = document.querySelectorAll('.ii, .a3s, .adP');
+    if (emailContainers.length > 0) {
+      // Return the first visible email container
+      for (const container of emailContainers) {
+        if (container.offsetParent !== null) { // Check if visible
+          this.log('Active target: Email reading area');
+          return container;
+        }
+      }
+    }
+    
+    this.log('No active target found');
+    return null;
+  };
+  
+  // Render LaTeX once with Rich Math (API/images)
+  TeXForGmail.renderOnceRichMath = async function(targetElement) {
+    this.log('Rendering once with Rich Math');
+    
+    // Temporarily set mode to Rich Math
+    const previousMode = this.simpleMode;
+    this.simpleMode = false;
+    
+    try {
+      // Check if it's a read mode email
+      const isReadMode = targetElement.classList.contains('ii') || 
+                        targetElement.classList.contains('a3s') || 
+                        targetElement.classList.contains('adP');
+      if (isReadMode) {
+        await this.renderReadOverlay(targetElement);
+      } else {
+        // Render without setting up observers
+        await detectAndRenderLatex(targetElement, {
+          oneTimeRender: true,
+          isReadMode: false
+        });
+      }
+      
+      this.log('One-time Rich Math rendering complete');
+      return Promise.resolve();
+    } catch (error) {
+      this.log('Error in renderOnceRichMath:', error);
+      showToast('Error rendering Rich Math', 'error');
+      return Promise.reject(error);
+    } finally {
+      // Restore previous mode
+      this.simpleMode = previousMode;
+    }
+  };
+  
+  // Render LaTeX once with Simple Math (HTML/CSS)
+  TeXForGmail.renderOnceSimpleMath = async function(targetElement) {
+    this.log('Rendering once with Simple Math');
+    const settings = await this.getSettings();
+    if (!settings?.enableSimpleMath) {
+      showToast('Simple Math mode is disabled in settings', 'warning');
+      return;
+    }
+    
+    // Temporarily set mode to Simple Math
+    const previousMode = this.simpleMode;
+    this.simpleMode = true;
+    
+    try {
+      // Check if it's a read mode email
+      const isReadMode = targetElement.classList.contains('ii') || 
+                        targetElement.classList.contains('a3s') || 
+                        targetElement.classList.contains('adP');
+      if (isReadMode) {
+        await this.renderReadOverlay(targetElement);
+      } else {
+        // Render without setting up observers
+        await detectAndRenderLatex(targetElement, {
+          oneTimeRender: true,
+          isReadMode: false
+        });
+      }
+      
+      this.log('One-time Simple Math rendering complete');
+      return Promise.resolve();
+    } catch (error) {
+      this.log('Error in renderOnceSimpleMath:', error);
+      showToast('Error rendering Simple Math', 'error');
+      return Promise.reject(error);
+    } finally {
+      // Restore previous mode
+      this.simpleMode = previousMode;
+    }
+  };
+  
+  // Toggle continuous rendering mode
+  TeXForGmail.toggleContinuousMode = async function(mode) {
+    const settings = await this.getSettings();
+    if (mode === 'simple' && !settings?.enableSimpleMath) {
+      showToast('Simple Math mode is disabled in settings', 'warning');
+      return;
+    }
+    const target = this.getActiveTarget();
+    if (!target) {
+      showToast('No active compose or email area found', 'error');
+      return;
+    }
+    
+    // Check if it's a compose area
+    const isComposeArea = target.closest('.M9, .AD, .aoI, [contenteditable="true"]');
+    
+    if (isComposeArea) {
+      // Find the TeX button for this compose area
+      const toolbar = isComposeArea.closest('.M9, .AD, .aoI')?.querySelector('.btC, .aaq, .aaZ');
+      const button = toolbar ? this.composeButtons.get(toolbar) : null;
+      
+      if (button) {
+        // Get current state
+        const currentState = getToggleState(isComposeArea);
+        const newMode = mode === 'simple' ? 'simple' : 'api';
+        
+        if (currentState === 'off' || currentState !== newMode) {
+          // Turn on with the requested mode
+          this.simpleMode = (mode === 'simple');
+          setToggleState(isComposeArea, newMode);
+          
+          // Update button appearance
+          button.style.background = '#e3f2fd';
+          button.setAttribute('aria-pressed', 'true');
+          
+          // Start continuous rendering
+          setupContentObserver(isComposeArea);
+          detectAndRenderLatex(isComposeArea);
+          
+          const modeText = mode === 'simple' ? 'Simple Math' : 'Rich Math';
+          showToast(`Continuous ${modeText} rendering enabled`, 'success');
+          this.log(`Toggled continuous ${modeText} mode ON`);
+        } else {
+          // Turn off
+          setToggleState(isComposeArea, 'off');
+          
+          // Update button appearance
+          button.style.background = '';
+          button.setAttribute('aria-pressed', 'false');
+          
+          // Stop rendering and restore content
+          restoreOriginalContent(isComposeArea);
+          removeContentObserver(isComposeArea);
+          
+          showToast('Continuous rendering disabled', 'info');
+          this.log('Toggled continuous mode OFF');
+        }
+      } else {
+        // No button found, but we can still render once
+        showToast('TeX button not found, rendering once', 'warning');
+        if (mode === 'simple') {
+          await this.renderOnceSimpleMath(target);
+        } else {
+          await this.renderOnceRichMath(target);
+        }
+      }
+    } else {
+      // For read mode, just render once (no continuous mode)
+      showToast('Rendering LaTeX in email...', 'info');
+      if (mode === 'simple') {
+        await this.renderOnceSimpleMath(target);
+      } else {
+        await this.renderOnceRichMath(target);
+      }
+      showToast('Email rendering complete', 'success');
+    }
   };
   
   // Send behavior dialog functions
@@ -3074,32 +3640,33 @@
               }, 500);
             }
           }
-            } else if (!shouldRender && userChoice && userChoice.action === 'send_without_render') {
-              // User chose to send without rendering
-              programmaticSendInProgress = true;
-              
-              if (sendButton) {
-                // Use a new click event to trigger send
-                const newClickEvent = new MouseEvent('click', {
-                  bubbles: true,
-                  cancelable: true,
-                  view: window,
-                  buttons: 1
-                });
-                sendButton.dispatchEvent(newClickEvent);
-              } else if (isKeyboard) {
-                // For keyboard shortcut, find and click the send button
-                const sendButtons = composeArea.closest('.M9, .AD, .aoI')
-                  ?.querySelectorAll('[data-tooltip*="Send"], [aria-label*="Send"]');
-                if (sendButtons && sendButtons.length > 0) {
-                  sendButtons[0].click();
-                }
+          
+          // Handle send without render case
+          if (!shouldRender && userChoice && userChoice.action === 'send_without_render') {
+            // User chose to send without rendering
+            programmaticSendInProgress = true;
+            
+            if (sendButton) {
+              // Use a new click event to trigger send
+              const newClickEvent = new MouseEvent('click', {
+                bubbles: true,
+                cancelable: true,
+                view: window,
+                buttons: 1
+              });
+              sendButton.dispatchEvent(newClickEvent);
+            } else if (isKeyboard) {
+              // For keyboard shortcut, find and click the send button
+              const sendButtons = composeArea.closest('.M9, .AD, .aoI')
+                ?.querySelectorAll('[data-tooltip*="Send"], [aria-label*="Send"]');
+              if (sendButtons && sendButtons.length > 0) {
+                sendButtons[0].click();
               }
-              
-              setTimeout(() => {
-                programmaticSendInProgress = false;
-              }, 1000);
             }
+            
+            setTimeout(() => {
+              programmaticSendInProgress = false;
+            }, 1000);
           }
         }
       }
@@ -3121,6 +3688,20 @@
     if (TeXForGmail.observer) {
       TeXForGmail.observer.disconnect();
       TeXForGmail.log('Main observer disconnected');
+    }
+    
+    // Remove keyboard handler
+    if (TeXForGmail.keyboardHandler) {
+      document.removeEventListener('keydown', TeXForGmail.keyboardHandler, true);
+      TeXForGmail.keyboardHandler = null;
+      TeXForGmail.log('Keyboard handler removed');
+    }
+    
+    // Disconnect More menu observer
+    if (TeXForGmail.moreMenuObserver) {
+      TeXForGmail.moreMenuObserver.disconnect();
+      TeXForGmail.moreMenuObserver = null;
+      TeXForGmail.log('More menu observer disconnected');
     }
     
     // Remove send interceptor listeners
@@ -3146,6 +3727,11 @@
       if (button.parentNode) {
         button.parentNode.replaceChild(newButton, button);
       }
+    });
+    
+    // Remove any read-mode overlays
+    document.querySelectorAll('.tex-read-overlay').forEach(overlay => {
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
     });
     
     // Disconnect all content observers (WeakMap doesn't have iteration, but observers will be GC'd)
@@ -3206,6 +3792,10 @@
       }
       if (changes.renderServer) {
         TeXForGmail.serverPreference = changes.renderServer.newValue;
+      }
+      if (changes.enableNaiveTeX) {
+        TeXForGmail.naiveTexMode = changes.enableNaiveTeX.newValue;
+        TeXForGmail.log(`Naive TeX mode ${changes.enableNaiveTeX.newValue ? 'enabled' : 'disabled'}`);
       }
       
       TeXForGmail.log('Settings updated from options page:', changes);
