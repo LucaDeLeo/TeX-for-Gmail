@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TeX for Gmail - Story 4.2 Tests</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .test-section {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #1a73e8;
+      border-bottom: 2px solid #e8f0fe;
+      padding-bottom: 10px;
+    }
+    h2 {
+      color: #333;
+      margin-top: 30px;
+    }
+    .gmail-compose {
+      background: white;
+      border: 1px solid #dadce0;
+      border-radius: 8px;
+      padding: 15px;
+      margin: 10px 0;
+    }
+    .gmail-email {
+      background: white;
+      border: 1px solid #dadce0;
+      border-radius: 8px;
+      padding: 15px;
+      margin: 10px 0;
+    }
+    .M9, .AD, .aoI {
+      min-height: 100px;
+      padding: 10px;
+      border: 1px dashed #999;
+      background: #fafafa;
+    }
+    .ii, .a3s, .adP {
+      min-height: 80px;
+      padding: 10px;
+      background: #fafafa;
+    }
+    .btC, .aqK, .G-atb {
+      padding: 10px;
+      background: #f8f9fa;
+      border-bottom: 1px solid #dadce0;
+      margin-bottom: 10px;
+    }
+    .test-latex {
+      padding: 15px;
+      background: #f0f7ff;
+      border-left: 4px solid #1a73e8;
+      margin: 10px 0;
+      font-family: 'Courier New', monospace;
+    }
+    .keyboard-info {
+      background: #fff9c4;
+      padding: 15px;
+      border-radius: 4px;
+      margin: 10px 0;
+    }
+    .status {
+      padding: 8px 12px;
+      border-radius: 4px;
+      margin: 5px 0;
+      font-weight: bold;
+    }
+    .status.success {
+      background: #c8e6c9;
+      color: #2e7d32;
+    }
+    .status.error {
+      background: #ffcdd2;
+      color: #c62828;
+    }
+    .status.info {
+      background: #bbdefb;
+      color: #1565c0;
+    }
+    button {
+      background: #1a73e8;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      margin: 5px;
+    }
+    button:hover {
+      background: #1557b0;
+    }
+    .test-results {
+      margin-top: 20px;
+      padding: 15px;
+      background: #f5f5f5;
+      border-radius: 4px;
+    }
+    .naive-tex-examples {
+      background: #e8f5e9;
+      padding: 10px;
+      border-radius: 4px;
+      margin: 10px 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>🧪 TeX for Gmail - Story 4.2: Keyboard Shortcuts & Reading Mode Tests</h1>
+  
+  <div class="test-section">
+    <h2>📋 Test Overview</h2>
+    <p>This page tests the following features from Story 4.2:</p>
+    <ul>
+      <li>✅ F8/F9 keyboard shortcuts for single rendering pass</li>
+      <li>✅ Cmd/Ctrl+F8/F9 for continuous rendering toggle</li>
+      <li>✅ Reading mode support for received emails</li>
+      <li>✅ Naive TeX detection when enabled</li>
+      <li>✅ Gmail More menu integration</li>
+      <li>✅ Settings integration for all features</li>
+    </ul>
+  </div>
+
+  <div class="test-section">
+    <h2>⌨️ Keyboard Shortcuts Test</h2>
+    <div class="keyboard-info">
+      <strong>Available Shortcuts:</strong>
+      <ul>
+        <li><kbd>F8</kbd> - Render once with Rich Math (API/images)</li>
+        <li><kbd>F9</kbd> - Render once with Simple Math (HTML/CSS)</li>
+        <li><kbd>Cmd+F8</kbd> / <kbd>Ctrl+F8</kbd> - Toggle continuous Rich Math</li>
+        <li><kbd>Cmd+F9</kbd> / <kbd>Ctrl+F9</kbd> - Toggle continuous Simple Math</li>
+      </ul>
+    </div>
+    
+    <h3>Compose Mode Test</h3>
+    <div class="gmail-compose">
+      <div class="M9" contenteditable="true">
+        <p>Type or paste LaTeX here and test keyboard shortcuts:</p>
+        <p>Quadratic formula: $x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}$</p>
+        <p>Euler's identity: $$e^{i\pi} + 1 = 0$$</p>
+        <p>Matrix: \begin{pmatrix} 1 & 2 \\ 3 & 4 \end{pmatrix}</p>
+      </div>
+    </div>
+    
+    <div class="test-results">
+      <div id="keyboard-test-status" class="status info">
+        Click in the compose area above and press F8 or F9 to test rendering
+      </div>
+    </div>
+  </div>
+
+  <div class="test-section">
+    <h2>📧 Reading Mode Test</h2>
+    <p>Simulated received email with LaTeX content:</p>
+    
+    <div class="gmail-email">
+      <div class="btC">
+        <!-- Toolbar where TeX button should appear -->
+        Email Toolbar (TeX button should appear here if showReadButton is enabled)
+      </div>
+      <div class="ii">
+        <p>Dear colleague,</p>
+        <p>Here's the solution to the differential equation:</p>
+        <p>$$\frac{dy}{dx} = ky \implies y = Ce^{kx}$$</p>
+        <p>The integral evaluates to: $\int_0^{\infty} e^{-x^2} dx = \frac{\sqrt{\pi}}{2}$</p>
+        <p>Best regards</p>
+      </div>
+    </div>
+    
+    <div class="test-results">
+      <div id="read-mode-status" class="status info">
+        TeX button should appear in the email toolbar above
+      </div>
+    </div>
+  </div>
+
+  <div class="test-section">
+    <h2>🔤 Naive TeX Detection Test</h2>
+    <div class="naive-tex-examples">
+      <p><strong>Enable Naive TeX in settings to test these patterns:</strong></p>
+      <ul>
+        <li>Superscript: x^2 + y^2 = z^2</li>
+        <li>Subscript: a_n = a_1 + (n-1)d</li>
+        <li>Complex exponent: e^(iπ) = -1</li>
+        <li>Mixed: x_i^2 + y_i^2</li>
+        <li>Fractions: 1/2 + 1/3 = 5/6</li>
+      </ul>
+    </div>
+    
+    <div class="gmail-compose">
+      <div class="AD" contenteditable="true">
+        <p>Test naive TeX patterns here (enable in settings first):</p>
+        <p>Pythagorean theorem: x^2 + y^2 = z^2</p>
+        <p>Sequence: a_n = a_1 + (n-1)d</p>
+        <p>Euler: e^(iπ) + 1 = 0</p>
+      </div>
+    </div>
+    
+    <div class="test-results">
+      <div id="naive-tex-status" class="status info">
+        Naive TeX detection status will appear here
+      </div>
+    </div>
+  </div>
+
+  <div class="test-section">
+    <h2>⚙️ Settings Integration Test</h2>
+    <button onclick="checkSettings()">Check Current Settings</button>
+    <button onclick="toggleKeyboardShortcuts()">Toggle Keyboard Shortcuts</button>
+    <button onclick="toggleReadButton()">Toggle Read Button</button>
+    <button onclick="toggleNaiveTeX()">Toggle Naive TeX</button>
+    
+    <div class="test-results">
+      <div id="settings-status" class="status info">
+        Click buttons above to test settings integration
+      </div>
+      <pre id="settings-display"></pre>
+    </div>
+  </div>
+
+  <div class="test-section">
+    <h2>📊 Test Results Summary</h2>
+    <div id="test-summary">
+      <p>Running tests...</p>
+    </div>
+  </div>
+
+  <script>
+    // Test utilities
+    function log(message, type = 'info') {
+      console.log(`[Test] ${message}`);
+      const timestamp = new Date().toLocaleTimeString();
+      const summary = document.getElementById('test-summary');
+      const entry = document.createElement('div');
+      entry.className = `status ${type}`;
+      entry.textContent = `[${timestamp}] ${message}`;
+      summary.appendChild(entry);
+    }
+
+    // Check if extension is loaded
+    function checkExtensionLoaded() {
+      if (typeof TeXForGmail !== 'undefined') {
+        log('✅ TeX for Gmail extension loaded successfully', 'success');
+        return true;
+      } else {
+        log('❌ TeX for Gmail extension not loaded', 'error');
+        return false;
+      }
+    }
+
+    // Test keyboard shortcuts
+    function testKeyboardShortcuts() {
+      document.addEventListener('keydown', (e) => {
+        const status = document.getElementById('keyboard-test-status');
+        
+        if (e.key === 'F8') {
+          const modifier = e.ctrlKey ? 'Ctrl+' : (e.metaKey ? 'Cmd+' : '');
+          status.className = 'status success';
+          status.textContent = `${modifier}F8 pressed - Rich Math rendering triggered`;
+          log(`Keyboard shortcut test: ${modifier}F8 detected`, 'success');
+        } else if (e.key === 'F9') {
+          const modifier = e.ctrlKey ? 'Ctrl+' : (e.metaKey ? 'Cmd+' : '');
+          status.className = 'status success';
+          status.textContent = `${modifier}F9 pressed - Simple Math rendering triggered`;
+          log(`Keyboard shortcut test: ${modifier}F9 detected`, 'success');
+        }
+      });
+    }
+
+    // Check settings
+    async function checkSettings() {
+      if (!checkExtensionLoaded()) return;
+      
+      try {
+        const settings = await TeXForGmail.getSettings();
+        document.getElementById('settings-display').textContent = JSON.stringify(settings, null, 2);
+        document.getElementById('settings-status').className = 'status success';
+        document.getElementById('settings-status').textContent = 'Settings loaded successfully';
+        
+        // Check specific Story 4.2 settings
+        log(`Keyboard shortcuts: ${settings.enableKeyboardShortcuts ? 'Enabled' : 'Disabled'}`, 
+            settings.enableKeyboardShortcuts ? 'success' : 'info');
+        log(`Read button: ${settings.showReadButton ? 'Shown' : 'Hidden'}`, 
+            settings.showReadButton ? 'success' : 'info');
+        log(`Naive TeX: ${settings.enableNaiveTeX ? 'Enabled' : 'Disabled'}`, 
+            settings.enableNaiveTeX ? 'success' : 'info');
+        
+        // Update naive TeX status
+        document.getElementById('naive-tex-status').className = settings.enableNaiveTeX ? 'status success' : 'status info';
+        document.getElementById('naive-tex-status').textContent = 
+          settings.enableNaiveTeX ? 'Naive TeX is ENABLED - informal patterns will be detected' : 
+                                   'Naive TeX is DISABLED - only formal LaTeX will be detected';
+      } catch (error) {
+        document.getElementById('settings-status').className = 'status error';
+        document.getElementById('settings-status').textContent = 'Error loading settings: ' + error.message;
+        log('Error loading settings: ' + error.message, 'error');
+      }
+    }
+
+    // Toggle settings
+    async function toggleKeyboardShortcuts() {
+      if (!checkExtensionLoaded()) return;
+      
+      try {
+        const settings = await TeXForGmail.getSettings();
+        const newValue = !settings.enableKeyboardShortcuts;
+        chrome.storage.sync.set({ enableKeyboardShortcuts: newValue });
+        log(`Keyboard shortcuts ${newValue ? 'enabled' : 'disabled'}`, 'success');
+        setTimeout(checkSettings, 500);
+      } catch (error) {
+        log('Error toggling keyboard shortcuts: ' + error.message, 'error');
+      }
+    }
+
+    async function toggleReadButton() {
+      if (!checkExtensionLoaded()) return;
+      
+      try {
+        const settings = await TeXForGmail.getSettings();
+        const newValue = !settings.showReadButton;
+        chrome.storage.sync.set({ showReadButton: newValue });
+        log(`Read button ${newValue ? 'shown' : 'hidden'}`, 'success');
+        setTimeout(checkSettings, 500);
+      } catch (error) {
+        log('Error toggling read button: ' + error.message, 'error');
+      }
+    }
+
+    async function toggleNaiveTeX() {
+      if (!checkExtensionLoaded()) return;
+      
+      try {
+        const settings = await TeXForGmail.getSettings();
+        const newValue = !settings.enableNaiveTeX;
+        chrome.storage.sync.set({ enableNaiveTeX: newValue });
+        log(`Naive TeX ${newValue ? 'enabled' : 'disabled'}`, 'success');
+        
+        // Update TeXForGmail flag directly for immediate testing
+        TeXForGmail.naiveTexMode = newValue;
+        
+        setTimeout(checkSettings, 500);
+      } catch (error) {
+        log('Error toggling naive TeX: ' + error.message, 'error');
+      }
+    }
+
+    // Test read mode button appearance
+    function testReadModeButton() {
+      // Check if button appears in simulated email
+      setTimeout(() => {
+        const toolbar = document.querySelector('.btC');
+        const button = toolbar?.querySelector('.tex-toggle-button');
+        
+        if (button) {
+          log('✅ Read mode button found in email toolbar', 'success');
+          document.getElementById('read-mode-status').className = 'status success';
+          document.getElementById('read-mode-status').textContent = 'TeX button successfully added to email toolbar';
+        } else {
+          log('⚠️ Read mode button not found - check if showReadButton is enabled', 'info');
+          document.getElementById('read-mode-status').className = 'status info';
+          document.getElementById('read-mode-status').textContent = 'TeX button not found - enable showReadButton in settings';
+        }
+      }, 2000);
+    }
+
+    // Test naive TeX detection
+    function testNaiveTeXDetection() {
+      if (!checkExtensionLoaded()) return;
+      
+      const testCases = [
+        { input: 'x^2', expected: true, description: 'Simple superscript' },
+        { input: 'a_n', expected: true, description: 'Simple subscript' },
+        { input: 'e^(iπ)', expected: true, description: 'Complex exponent' },
+        { input: 'normal text', expected: false, description: 'No TeX patterns' }
+      ];
+      
+      testCases.forEach(test => {
+        const result = window.detectNaiveTeX?.(test.input);
+        const passed = (!!result === test.expected);
+        log(`Naive TeX test "${test.description}": ${passed ? '✅ PASS' : '❌ FAIL'}`, 
+            passed ? 'success' : 'error');
+      });
+    }
+
+    // Initialize tests
+    function initializeTests() {
+      log('Initializing Story 4.2 tests...', 'info');
+      
+      // Wait for extension to load
+      setTimeout(() => {
+        if (checkExtensionLoaded()) {
+          testKeyboardShortcuts();
+          testReadModeButton();
+          checkSettings();
+          testNaiveTeXDetection();
+          
+          log('All tests initialized. Please interact with the page to test features.', 'success');
+        } else {
+          log('Extension not loaded. Please ensure TeX for Gmail is installed and enabled.', 'error');
+        }
+      }, 1000);
+    }
+
+    // Run tests when page loads
+    window.addEventListener('load', initializeTests);
+  </script>
+</body>
+</html>

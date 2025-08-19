@@ -36,6 +36,10 @@
 - **💻 Code Block Protection** - LaTeX in `<code>` and `<pre>` blocks is not rendered
 - **💱 Currency Detection** - Intelligently distinguishes $100 from $x = 100$
 - **🔍 Pattern Normalization** - Ensures consistent rendering of all equations
+- **⌨️ Keyboard Shortcuts** - F8/F9 for quick rendering, Cmd/Ctrl modifiers for continuous mode
+- **📖 Reading Mode** - Render LaTeX in received emails with dedicated toolbar button
+- **🔤 Naive TeX Support** - Optional detection of informal notation (x^2, e^(iπ))
+- **📋 Gmail More Menu** - "Render LaTeX" option in email three-dot menu
 
 ## 🚀 Quick Start
 
@@ -72,6 +76,9 @@ Customizable settings include:
 - Image quality (DPI)
 - UI controls visibility
 - Font preferences for simple math
+- Keyboard shortcuts (Enable/Disable)
+- Reading mode button (Show/Hide)
+- Naive TeX detection (Enable/Disable)
 
 ## 📖 User Guide
 
@@ -96,6 +103,29 @@ $$\int_{-\infty}^{\infty} e^{-x^2} dx = \sqrt{\pi}$$
 - **📐 TeX OFF (Gray):** Shows LaTeX source code
 - State preserved per compose window
 - Cursor position maintained during toggle
+
+#### Keyboard Shortcuts
+Quick rendering without clicking buttons:
+- **F8** - Render current content once with Rich Math (images)
+- **F9** - Render current content once with Simple Math (HTML/CSS)
+- **Cmd+F8** (Mac) / **Ctrl+F8** (Windows) - Toggle continuous Rich Math rendering
+- **Cmd+F9** (Mac) / **Ctrl+F9** (Windows) - Toggle continuous Simple Math rendering
+
+*Can be disabled in extension options*
+
+#### Reading Mode
+View LaTeX in received emails:
+- TeX button appears in email toolbar when viewing messages
+- Click to render all LaTeX equations in the email
+- Original email content is preserved
+- Works with both formal LaTeX and informal notation (when enabled)
+
+#### Naive TeX Detection
+When enabled in settings, detects informal mathematical notation:
+- Superscripts: `x^2`, `e^(iπ)`
+- Subscripts: `a_n`, `x_i`
+- Common patterns without formal delimiters
+- Useful for emails from colleagues who don't use formal LaTeX syntax
 
 #### Code Block Protection
 LaTeX within code blocks is NOT rendered:
@@ -151,11 +181,16 @@ The extension offers three modes for handling LaTeX when sending emails:
 ```
 TeX-for-Gmail/
 ├── manifest.json          # Manifest V3 configuration
-├── content.js            # Core logic (1500+ lines)
+├── content.js            # Core logic (3700+ lines)
+├── options.html          # Options page UI
+├── options.js            # Options page logic
 ├── styles.css            # Visual styling
 ├── icon128.png           # Extension icon (128x128)
 ├── README.md             # This file
-├── CONCERNS_AND_ROADMAP.md # Future development plans
+├── CHANGELOG.md          # Version history
+├── docs/                 # Documentation
+│   ├── stories/         # Development stories
+│   └── reports/         # QA and test reports
 └── tests/                # Test harnesses
     └── test-*.html       # Test files
 ```
@@ -216,8 +251,14 @@ A: Yes! Access the Options page to configure:
 **Q: Can I turn off auto-conversion without disabling the extension?**  
 A: Yes! Set the send behavior to "Never" or "Ask" in the Options page to control when LaTeX is rendered.
 
-**Q: Is there a keyboard shortcut?**  
-A: Not yet. Planned for future release.
+**Q: Are there keyboard shortcuts?**  
+A: Yes! Use F8/F9 for quick rendering, or Cmd/Ctrl+F8/F9 for continuous mode. Can be disabled in settings.
+
+**Q: Can I render LaTeX in emails I receive?**  
+A: Yes! The extension adds a TeX button to received emails. Click it to render any LaTeX notation.
+
+**Q: What is Naive TeX detection?**  
+A: When enabled, it detects informal math notation like x^2 or e^(iπ) without formal LaTeX delimiters.
 ---
 
 <div align="center">
