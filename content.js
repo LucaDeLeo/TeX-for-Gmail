@@ -375,6 +375,18 @@
     readButtons: new WeakMap(), // Track buttons in read mode
     processingStates: new WeakMap(),
     composeObservers: new WeakMap(), // Track observers per compose area
+    
+    // Template shortcuts for LaTeX commands
+    TEX_TEMPLATES: {
+      'F': { template: '\\frac{|}{}', name: 'Fraction' },
+      'S': { template: '\\sqrt{|}', name: 'Square root' },
+      'I': { template: '\\int_{|}^{}', name: 'Integral' },
+      'M': { template: '\\begin{matrix}|\\end{matrix}', name: 'Matrix' },
+      'P': { template: '\\prod_{|}^{}', name: 'Product' },
+      'U': { template: '\\sum_{|}^{}', name: 'Sum' },
+      'L': { template: '\\lim_{|}', name: 'Limit' },
+      'V': { template: '\\vec{|}', name: 'Vector' }
+    },
     renderTimeouts: new WeakMap(), // Track render timeouts per compose area
     toggleStates: new WeakMap(), // Track toggle state per compose area
     originalContent: new WeakMap(), // Store original content before rendering
@@ -382,7 +394,7 @@
     sendProcessingStates: new WeakMap(), // Track send processing states
     observerSetupFlags: new WeakMap(), // Prevent duplicate observer setup
     apiCallTimes: [], // Track API call timestamps for rate limiting
-    debugMode: true, // Set to true for verbose logging (temporarily enabled for debugging)
+    debugMode: false, // Set to true for verbose logging
     simpleMode: false, // Simple Math mode flag
     naiveTexMode: false, // Naive TeX detection mode flag
     serverPreference: 'codecogs', // Current server preference
@@ -1464,6 +1476,11 @@
       img.style.display = 'inline';
     }
     img.style.cursor = 'pointer';
+    img.setAttribute('role', 'button');
+    img.setAttribute('aria-label', 'Click to edit LaTeX source');
+    
+    // Store original source with delimiters for click-to-edit
+    img.setAttribute('data-original-source', isDisplay ? `$$${latex}$$` : `$${latex}$`);
     
     // Error handling for image loading with improved user feedback
     img.onerror = function() {
@@ -1502,9 +1519,156 @@
       }
     };
     
+    // Add click-to-edit handler
+    img.addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      // Don't trigger during drag operations
+      if (e.buttons !== 0 && e.buttons !== 1) return;
+      
+      TeXForGmail.handleImageClick(this);
+    });
+    
     wrapper.appendChild(img);
     return wrapper;
   }
+
+  // Handle click on rendered LaTeX image to restore source text
+  TeXForGmail.handleImageClick = function(img) {
+    const wrapper = img.parentElement;
+    const sourceText = img.getAttribute('data-original-source');
+    
+    if (!sourceText) {
+      TeXForGmail.log('Click-to-edit: No source text found');
+      return;
+    }
+    
+    // Create text node with original source
+    const textNode = document.createTextNode(sourceText);
+    wrapper.parentNode.replaceChild(textNode, wrapper);
+    
+    // Position cursor after opening delimiter
+    const range = document.createRange();
+    const delimLength = sourceText.startsWith('$$') ? 2 : 1;
+    range.setStart(textNode, delimLength);
+    range.setEnd(textNode, delimLength);
+    
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    
+    // Focus the compose area
+    const composeArea = textNode.parentElement;
+    if (composeArea && composeArea.focus) {
+      composeArea.focus();
+    }
+    
+    TeXForGmail.log('Click-to-edit: Restored source text', sourceText);
+  };
+  
+  // Insert LaTeX template at cursor position
+  TeXForGmail.insertTexTemplate = function(template) {
+    const selection = window.getSelection();
+    if (!selection.rangeCount) return false;
+    
+    const range = selection.getRangeAt(0);
+    const container = range.commonAncestorContainer;
+    
+    // Check if we're in a Gmail compose area
+    const composeArea = this.getActiveTarget();
+    if (!composeArea) {
+      TeXForGmail.log('Template insertion: Not in compose area');
+      return false;
+    }
+    
+    // Replace | with empty string for insertion, remember position
+    const cursorPos = template.indexOf('|');
+    const cleanTemplate = template.replace(/\|/g, '');
+    
+    // Insert the template text
+    document.execCommand('insertText', false, cleanTemplate);
+    
+    // Position cursor at the | marker position if present
+    if (cursorPos >= 0) {
+      // Get the updated selection after insertion
+      const newSelection = window.getSelection();
+      if (newSelection.rangeCount) {
+        const newRange = newSelection.getRangeAt(0);
+        const textNode = newRange.startContainer;
+        
+        if (textNode.nodeType === Node.TEXT_NODE) {
+          // Calculate the new cursor position
+          const startOffset = newRange.startOffset - cleanTemplate.length + cursorPos;
+          
+          if (startOffset >= 0 && startOffset <= textNode.textContent.length) {
+            const cursorRange = document.createRange();
+            cursorRange.setStart(textNode, startOffset);
+            cursorRange.setEnd(textNode, startOffset);
+            
+            newSelection.removeAllRanges();
+            newSelection.addRange(cursorRange);
+          }
+        }
+      }
+    }
+    
+    return true;
+  };
+  
+  // Navigate between template placeholders
+  TeXForGmail.navigateTemplate = function(direction) {
+    const selection = window.getSelection();
+    if (!selection.rangeCount) return;
+    
+    const range = selection.getRangeAt(0);
+    const container = range.commonAncestorContainer;
+    
+    if (container.nodeType !== Node.TEXT_NODE) return;
+    
+    const text = container.textContent;
+    const currentPos = range.startOffset;
+    
+    // Find {} pairs as placeholders
+    const placeholders = [];
+    let braceDepth = 0;
+    let placeholderStart = -1;
+    
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] === '{') {
+        if (braceDepth === 0) placeholderStart = i;
+        braceDepth++;
+      } else if (text[i] === '}') {
+        braceDepth--;
+        if (braceDepth === 0 && placeholderStart >= 0) {
+          // Check if placeholder is empty
+          if (i - placeholderStart === 1) {
+            placeholders.push({ start: placeholderStart + 1, end: i });
+          }
+          placeholderStart = -1;
+        }
+      }
+    }
+    
+    if (placeholders.length === 0) return;
+    
+    let targetPlaceholder;
+    if (direction === 'next') {
+      targetPlaceholder = placeholders.find(p => p.start > currentPos);
+      if (!targetPlaceholder) targetPlaceholder = placeholders[0]; // Wrap around
+    } else {
+      targetPlaceholder = placeholders.reverse().find(p => p.start < currentPos);
+      if (!targetPlaceholder) targetPlaceholder = placeholders[placeholders.length - 1]; // Wrap around
+    }
+    
+    if (targetPlaceholder) {
+      const newRange = document.createRange();
+      newRange.setStart(container, targetPlaceholder.start);
+      newRange.setEnd(container, targetPlaceholder.end);
+      selection.removeAllRanges();
+      selection.addRange(newRange);
+    }
+  };
 
   // Task 2 (Story 2.2): Extract LaTeX source from element with multiple fallbacks
   // Task 4 (Story 2.2): Enhanced with progressive enhancement support
@@ -2931,10 +3095,48 @@
     const hasModifier = e.ctrlKey || e.metaKey;
 
     // If shortcuts are disabled, show a warning toast when user presses the keys
-    if (!settings?.enableKeyboardShortcuts && isShortcutKey) {
-      const shortcutType = hasModifier ? 'continuous' : 'single';
-      showToast(`Keyboard shortcuts are disabled. Enable them in TeX for Gmail settings to use ${shortcutType} rendering.`, 'warning');
-      return;
+    if (!settings?.enableKeyboardShortcuts) {
+      if (isShortcutKey || (e.ctrlKey && e.shiftKey)) {
+        const shortcutType = hasModifier ? 'continuous' : 'single';
+        showToast(`Keyboard shortcuts are disabled. Enable them in TeX for Gmail settings.`, 'warning');
+        return;
+      }
+    }
+    
+    // Check if we're in a compose area for template shortcuts
+    const composeArea = this.getActiveTarget();
+    
+    // Tab navigation for templates
+    if (e.key === 'Tab' && composeArea && settings?.enableKeyboardShortcuts) {
+      const selection = window.getSelection();
+      if (selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        const container = range.commonAncestorContainer;
+        
+        // Check if we're in a text node with LaTeX content containing empty {}
+        if (container.nodeType === Node.TEXT_NODE && 
+            container.textContent.includes('{}')) {
+          e.preventDefault();
+          e.stopPropagation();
+          this.navigateTemplate(e.shiftKey ? 'prev' : 'next');
+          return;
+        }
+      }
+    }
+    
+    // Ctrl+Shift template shortcuts
+    if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && settings?.enableKeyboardShortcuts) {
+      const template = this.TEX_TEMPLATES[e.key.toUpperCase()];
+      if (template && composeArea) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        if (this.insertTexTemplate(template.template)) {
+          showToast(`Inserted ${template.name}`, 'info');
+          this.log(`Template shortcut: Inserted ${template.name}`);
+        }
+        return;
+      }
     }
     
     // F8: Rich Math once
