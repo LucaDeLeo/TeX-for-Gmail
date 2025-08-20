@@ -3882,6 +3882,7 @@
     document.addEventListener('keydown', interceptSend, true);
     
     TeXForGmail.log('Send interceptor initialized (click and keyboard)');
+  }
   };
 
   // Comprehensive cleanup function
@@ -4003,15 +4004,19 @@
       TeXForGmail.log('Settings updated from options page:', changes);
     }
   };
-  chrome.storage.onChanged.addListener(TeXForGmail.storageChangeListener);
+  if (typeof chrome !== 'undefined' && chrome.storage) {
+    chrome.storage.onChanged.addListener(TeXForGmail.storageChangeListener);
+  }
   
   // Listen for messages from options page
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.type === 'SETTINGS_UPDATED') {
-      TeXForGmail.settings = request.settings;
-      TeXForGmail.log('Settings updated via message:', request.settings);
-    }
-  });
+  if (typeof chrome !== 'undefined' && chrome.runtime) {
+    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+      if (request.type === 'SETTINGS_UPDATED') {
+        TeXForGmail.settings = request.settings;
+        TeXForGmail.log('Settings updated via message:', request.settings);
+      }
+    });
+  }
 
   // Initialize when DOM is ready
   if (document.readyState === 'loading') {
