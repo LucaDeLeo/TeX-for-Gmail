@@ -290,6 +290,10 @@ function populateForm(settings) {
     document.getElementById('showComposeButton').checked = settings.showComposeButton;
     document.getElementById('showReadButton').checked = settings.showReadButton;
     document.getElementById('enableKeyboardShortcuts').checked = settings.enableKeyboardShortcuts;
+    
+    // Advanced features
+    document.getElementById('enableNaiveTeX').checked = settings.enableNaiveTeX;
+    document.getElementById('enableSimpleMath').checked = settings.enableSimpleMath;
 }
 
 // Get form values as settings object
@@ -304,6 +308,8 @@ function getFormValues() {
         showComposeButton: document.getElementById('showComposeButton').checked,
         showReadButton: document.getElementById('showReadButton').checked,
         enableKeyboardShortcuts: document.getElementById('enableKeyboardShortcuts').checked,
+        enableNaiveTeX: document.getElementById('enableNaiveTeX').checked,
+        enableSimpleMath: document.getElementById('enableSimpleMath').checked,
         // Preserve other settings not in the form
         ...settingsCache,
         // Override with form values
@@ -315,7 +321,9 @@ function getFormValues() {
         simpleMathFontIncoming: document.getElementById('simpleMathFontIncoming').value.trim(),
         showComposeButton: document.getElementById('showComposeButton').checked,
         showReadButton: document.getElementById('showReadButton').checked,
-        enableKeyboardShortcuts: document.getElementById('enableKeyboardShortcuts').checked
+        enableKeyboardShortcuts: document.getElementById('enableKeyboardShortcuts').checked,
+        enableNaiveTeX: document.getElementById('enableNaiveTeX').checked,
+        enableSimpleMath: document.getElementById('enableSimpleMath').checked
     };
 }
 

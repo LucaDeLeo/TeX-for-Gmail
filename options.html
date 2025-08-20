@@ -566,6 +566,56 @@
                         </label>
                     </div>
                 </section>
+
+                <!-- Advanced Features Section -->
+                <section class="section" aria-labelledby="advanced-features-heading">
+                    <h2 id="advanced-features-heading">Advanced Features</h2>
+                    
+                    <div class="form-group">
+                        <label class="checkbox-group">
+                            <input type="checkbox" id="enableNaiveTeX" name="enableNaiveTeX">
+                            <span class="checkbox-label">Enable Naive TeX Detection</span>
+                        </label>
+                        <div class="radio-description" style="margin-left: 30px; margin-top: 4px;">
+                            Detects informal mathematical notation like x^2, a_n, e^(iπ) without delimiters
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="checkbox-group">
+                            <input type="checkbox" id="enableSimpleMath" name="enableSimpleMath">
+                            <span class="checkbox-label">Enable Simple Math Mode</span>
+                        </label>
+                        <div class="radio-description" style="margin-left: 30px; margin-top: 4px;">
+                            Renders LaTeX as HTML/CSS instead of images (works offline)
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Keyboard Shortcuts Reference -->
+                <section class="section" aria-labelledby="shortcuts-heading">
+                    <h2 id="shortcuts-heading">Keyboard Shortcuts Reference</h2>
+                    <div class="radio-description">Use these shortcuts in Gmail compose:</div>
+                    <ul style="margin-top: 12px; font-size: 14px; line-height: 1.6;">
+                        <li><kbd>F8</kbd> - Render with Rich Math (once)</li>
+                        <li><kbd>F9</kbd> - Render with Simple Math (once)</li>
+                        <li><kbd>Ctrl/Cmd+F8</kbd> - Toggle continuous Rich Math</li>
+                        <li><kbd>Ctrl/Cmd+F9</kbd> - Toggle continuous Simple Math</li>
+                        <li style="margin-top: 8px;"><kbd>Ctrl+Shift+F</kbd> - Insert fraction \frac{}{}</li>
+                        <li><kbd>Ctrl+Shift+S</kbd> - Insert square root \sqrt{}</li>
+                        <li><kbd>Ctrl+Shift+I</kbd> - Insert integral \int_{}{}</li>
+                        <li><kbd>Ctrl+Shift+M</kbd> - Insert matrix</li>
+                        <li><kbd>Ctrl+Shift+P</kbd> - Insert product \prod_{}{}</li>
+                        <li><kbd>Ctrl+Shift+U</kbd> - Insert sum \sum_{}{}</li>
+                        <li><kbd>Ctrl+Shift+L</kbd> - Insert limit \lim_{}</li>
+                        <li><kbd>Ctrl+Shift+V</kbd> - Insert vector \vec{}</li>
+                        <li style="margin-top: 8px;"><kbd>Tab</kbd> - Navigate to next placeholder in template</li>
+                        <li><kbd>Shift+Tab</kbd> - Navigate to previous placeholder</li>
+                    </ul>
+                    <div class="radio-description" style="margin-top: 12px;">
+                        <strong>Click-to-Edit:</strong> Click any rendered LaTeX image to restore and edit the source code.
+                    </div>
+                </section>
             </form>
         </main>
 
