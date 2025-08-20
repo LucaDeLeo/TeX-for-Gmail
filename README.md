@@ -207,19 +207,25 @@ The extension offers three modes for handling LaTeX when sending emails:
 
 ```
 TeX-for-Gmail/
-├── manifest.json          # Manifest V3 configuration
-├── content.js            # Core logic (3700+ lines)
-├── options.html          # Options page UI
-├── options.js            # Options page logic
-├── styles.css            # Visual styling
-├── icon128.png           # Extension icon (128x128)
-├── README.md             # This file
-├── CHANGELOG.md          # Version history
-├── docs/                 # Documentation
-│   ├── stories/         # Development stories
-│   └── reports/         # QA and test reports
-└── tests/                # Test harnesses
-    └── test-*.html       # Test files
+├── manifest.json         # Manifest V3 configuration
+├── README.md            # Documentation
+├── CHANGELOG.md         # Version history
+├── src/                 # Source files
+│   ├── content.js      # Core logic (3700+ lines)
+│   ├── options.html    # Options page UI
+│   ├── options.js      # Options page logic
+│   └── styles.css      # Visual styling
+├── assets/              # Static assets
+│   └── icons/
+│       └── icon128.png # Extension icon (128x128)
+├── docs/                # Documentation
+│   ├── stories/        # Development stories (10 stories)
+│   ├── reports/        # QA and test reports
+│   └── *.md           # Additional documentation
+├── tests/               # Test suite
+│   └── test-*.html     # Test harnesses (25+ test files)
+└── utils/               # Utility scripts
+    └── check_balance.js # Development utilities
 ```
 
 ### How It Works
