@@ -5,7 +5,7 @@
 [![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-green)](https://chrome.google.com)
 [![Manifest Version](https://img.shields.io/badge/Manifest-V3-blue)](https://developer.chrome.com/docs/extensions/mv3/)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-1.0--beta-orange)](manifest.json)
+[![Version](https://img.shields.io/badge/Version-1.1--beta-orange)](manifest.json)
 
 ## ⚠️ Important Privacy Notice
 
@@ -27,7 +27,7 @@
 - **📧 Universal Compatibility** - Recipients see rendered math without any extension
 - **💾 Smart State Management** - Toggle states preserved per compose window
 
-### Advanced Features (v1.0-beta)
+### Advanced Features (v1.1-beta)
 - **🎯 Cursor Preservation** - Maintains exact cursor position through all operations
 - **🧹 Memory Management** - Comprehensive cleanup prevents memory leaks
 - **🔒 Race Condition Prevention** - Mutex patterns ensure stable operation
@@ -40,6 +40,13 @@
 - **📖 Reading Mode** - Render LaTeX in received emails with dedicated toolbar button
 - **🔤 Naive TeX Support** - Optional detection of informal notation (x^2, e^(iπ))
 - **📋 Gmail More Menu** - "Render LaTeX" option in email three-dot menu
+
+### New in v1.1 - Feature Parity Update
+- **🖱️ Click-to-Edit** - Click any rendered LaTeX image to restore the original source
+- **⚡ LaTeX Template Shortcuts** - 8 productivity shortcuts for common LaTeX structures
+- **🔄 Tab Navigation** - Navigate between template placeholders with Tab/Shift+Tab
+- **🎚️ Simple Math Mode** - Optional HTML/CSS rendering instead of images (works offline)
+- **🎯 Enhanced UI Settings** - New checkboxes for Naive TeX and Simple Math modes
 
 ## 🚀 Quick Start
 
@@ -79,6 +86,7 @@ Customizable settings include:
 - Keyboard shortcuts (Enable/Disable)
 - Reading mode button (Show/Hide)
 - Naive TeX detection (Enable/Disable)
+- Simple Math mode (Enable/Disable) - v1.1
 
 ## 📖 User Guide
 
@@ -105,13 +113,33 @@ $$\int_{-\infty}^{\infty} e^{-x^2} dx = \sqrt{\pi}$$
 - Cursor position maintained during toggle
 
 #### Keyboard Shortcuts
-Quick rendering without clicking buttons:
+
+**Rendering Shortcuts:**
 - **F8** - Render current content once with Rich Math (images)
 - **F9** - Render current content once with Simple Math (HTML/CSS)
 - **Cmd+F8** (Mac) / **Ctrl+F8** (Windows) - Toggle continuous Rich Math rendering
 - **Cmd+F9** (Mac) / **Ctrl+F9** (Windows) - Toggle continuous Simple Math rendering
 
+**LaTeX Template Shortcuts (v1.1):**
+- **Ctrl+Shift+F** - Insert fraction `\frac{}{}`
+- **Ctrl+Shift+S** - Insert square root `\sqrt{}`
+- **Ctrl+Shift+I** - Insert integral `\int_{}^{}`
+- **Ctrl+Shift+M** - Insert matrix `\begin{matrix}\end{matrix}`
+- **Ctrl+Shift+P** - Insert product `\prod_{}^{}`
+- **Ctrl+Shift+U** - Insert sum `\sum_{}^{}`
+- **Ctrl+Shift+L** - Insert limit `\lim_{}`
+- **Ctrl+Shift+V** - Insert vector `\vec{}`
+- **Tab** - Navigate to next placeholder `{}`
+- **Shift+Tab** - Navigate to previous placeholder `{}`
+
 *Can be disabled in extension options*
+
+#### Click-to-Edit (v1.1)
+Restore LaTeX source from rendered images:
+- Click any rendered LaTeX image to restore the original source text
+- Cursor automatically positioned after the opening delimiter
+- Original delimiters ($, $$, \(, \[) are preserved exactly
+- Works in compose, reply, and forward modes
 
 #### Reading Mode
 View LaTeX in received emails:
@@ -164,10 +192,9 @@ The extension offers three modes for handling LaTeX when sending emails:
 3. **API Rate Limit:** Maximum 60 renders per minute
 
 ### Minor Limitations
-1. **Copy/Paste:** Cannot copy LaTeX source from rendered equations
-2. **Performance:** May lag with 50+ equations in single email
-3. **No Caching:** Equations re-render on every toggle
-4. **Gmail Changes:** May break if Gmail updates their interface
+1. **Performance:** May lag with 100+ equations in single email (tested up to 100)
+2. **No Caching:** Equations re-render on every toggle
+3. **Gmail Changes:** May break if Gmail updates their interface
 
 ### Browser Support
 - **Supported:** Chrome 88+ (Manifest V3)
@@ -252,13 +279,19 @@ A: Yes! Access the Options page to configure:
 A: Yes! Set the send behavior to "Never" or "Ask" in the Options page to control when LaTeX is rendered.
 
 **Q: Are there keyboard shortcuts?**  
-A: Yes! Use F8/F9 for quick rendering, or Cmd/Ctrl+F8/F9 for continuous mode. Can be disabled in settings.
+A: Yes! Use F8/F9 for quick rendering, or Cmd/Ctrl+F8/F9 for continuous mode. Plus 8 template shortcuts (Ctrl+Shift+F/S/I/M/P/U/L/V) in v1.1. Can be disabled in settings.
 
 **Q: Can I render LaTeX in emails I receive?**  
 A: Yes! The extension adds a TeX button to received emails. Click it to render any LaTeX notation.
 
 **Q: What is Naive TeX detection?**  
 A: When enabled, it detects informal math notation like x^2 or e^(iπ) without formal LaTeX delimiters.
+
+**Q: Can I click on rendered equations to edit them?**  
+A: Yes! In v1.1, click any rendered LaTeX image to restore the original source text with cursor positioning.
+
+**Q: What is Simple Math Mode?**  
+A: An alternative rendering mode using HTML/CSS instead of images. It works offline and is faster, though with simpler formatting.
 ---
 
 <div align="center">
