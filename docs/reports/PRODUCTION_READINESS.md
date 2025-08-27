@@ -15,6 +15,28 @@ TeX for Gmail has undergone comprehensive development, testing, and bug fixing. 
 
 ---
 
+## Update — 2025-08-27
+
+Recent changes since the initial assessment:
+
+- Story 4.3 completed and QA-gated: PASS
+  - Gate: `docs/qa/gates/4.3-feature-parity-click-to-edit-tex-shortcuts-ui-settings.yml`
+  - Risk: No critical/high risks; highest is TECH-001 (medium) — shortcut conflicts; see `docs/qa/assessments/4.3-risk-20250827.md`
+  - NFR: All categories PASS; see `docs/qa/assessments/4.3-nfr-20250827.md`
+  - Traceability: All ACs covered; see `docs/qa/assessments/4.3-trace-20250827.md`
+- PRD sharded for easier navigation: `docs/prd/index.md`
+- Documentation index generated: `docs/index.md`
+
+Open items before GA (v1.0):
+
+- Implement per-image load timeout and single-retry fallback (CodeCogs→WordPress→Simple Math) per 3.1 notes
+- Align DPI defaults consistently (Inline 200 / Display 300) across code and options UI
+- Run live Gmail shortcut conflict smoke tests and confirm no collisions
+
+Recommendation remains: proceed as public beta while closing the above for GA.
+
+---
+
 ## ✅ What's Ready
 
 ### Core Functionality

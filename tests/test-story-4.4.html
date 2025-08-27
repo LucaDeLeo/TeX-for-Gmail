@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TeX for Gmail - Story 4.4 Tests (Settings Import/Export)</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 20px; background: #f5f5f5; }
+    h1 { color: #1a73e8; border-bottom: 2px solid #e8f0fe; padding-bottom: 8px; }
+    h2 { color: #202124; margin-top: 28px; }
+    .section { background: white; border-radius: 8px; padding: 18px; margin: 16px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(280px,1fr)); gap: 14px; }
+    .status { padding: 8px 12px; border-radius: 4px; font-family: monospace; font-size: 13px; }
+    .success { background: #e6f4ea; color: #1e8e3e; border: 1px solid #ceead6; }
+    .error { background: #fce8e6; color: #d33b27; border: 1px solid #f5c6c0; }
+    .info { background: #e8f0fe; color: #1967d2; border: 1px solid #aecbfa; }
+    input, textarea { width: 100%; padding: 8px; border: 1px solid #dadce0; border-radius: 4px; font-family: monospace; }
+    textarea { min-height: 120px; }
+    kbd { background: #f1f3f4; border: 1px solid #dadce0; border-radius: 3px; padding: 2px 6px; font-family: monospace; font-size: 12px; }
+    .hint { color: #5f6368; font-size: 13px; }
+    button { background: #1a73e8; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; }
+    button:hover { background: #1557b0; }
+  </style>
+  <script>
+    function validateFilename() {
+      const name = document.getElementById('filename').value.trim();
+      const re = /^tex-for-gmail-settings-\d{8}-\d{4}\.json$/;
+      const ok = re.test(name);
+      setStatus('fileStatus', ok, ok ? 'Filename matches required pattern' : 'Invalid filename. Expected tex-for-gmail-settings-YYYYMMDD-HHMM.json (UTC)');
+    }
+    function validateJson() {
+      const txt = document.getElementById('json').value.trim();
+      try {
+        const obj = JSON.parse(txt);
+        const ok = obj && obj._meta && obj._meta.version && obj._meta.exportedAt && obj.settings && typeof obj.settings === 'object';
+        setStatus('jsonStatus', ok, ok ? 'JSON has required {_meta, settings} shape' : 'Missing required fields: {_meta.version, _meta.exportedAt, settings}');
+      } catch (e) {
+        setStatus('jsonStatus', false, 'Not valid JSON: ' + e.message);
+      }
+    }
+    function setStatus(id, ok, msg) {
+      const el = document.getElementById(id);
+      el.className = 'status ' + (ok ? 'success' : 'error');
+      el.textContent = msg;
+    }
+  </script>
+</head>
+<body>
+  <h1>🧪 Story 4.4 Tests — Settings Import/Export</h1>
+
+  <div class="section">
+    <h2>📋 Test Overview</h2>
+    <ul>
+      <li>Export downloads JSON with required shape and metadata</li>
+      <li>Filename follows UTC pattern: <code>tex-for-gmail-settings-YYYYMMDD-HHMM.json</code></li>
+      <li>Import validates and previews sanitized changes before apply</li>
+      <li>No network calls; storage sync fallback to local on quota</li>
+      <li>Announcements via aria-live; focus returns to Import button</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>⬇️ Export Validation</h2>
+    <p class="hint">Open the extension Options page → click <strong>Export Settings</strong>. Then paste the filename and JSON here to validate.</p>
+    <div class="grid">
+      <div>
+        <label>Exported filename</label>
+        <input id="filename" placeholder="tex-for-gmail-settings-20250827-1612.json" oninput="validateFilename()" />
+        <div id="fileStatus" class="status info" style="margin-top:6px;">Waiting for input…</div>
+      </div>
+      <div>
+        <label>Exported JSON</label>
+        <textarea id="json" placeholder='{"_meta":{"version":"1.1.0","exportedAt":"2025-08-27T16:12:00Z"},"settings":{…}}' oninput="validateJson()"></textarea>
+        <div id="jsonStatus" class="status info" style="margin-top:6px;">Waiting for input…</div>
+      </div>
+    </div>
+    <p class="hint">Expected: <code>_meta.version</code> equals manifest version; <code>_meta.exportedAt</code> is ISO 8601 UTC; <code>settings</code> only contains recognized keys.</p>
+  </div>
+
+  <div class="section">
+    <h2>⬆️ Import Scenarios</h2>
+    <ol>
+      <li>Click <strong>Import Settings</strong> on Options page and select a JSON file.</li>
+      <li>Confirm an inline <em>Import Preview</em> appears listing changes.</li>
+      <li>Press <strong>Apply Import</strong>; verify success message and settings update.</li>
+      <li>Repeat with invalid JSON and non-JSON file; verify specific error and no changes.</li>
+    </ol>
+    <p class="hint">Use these sample payloads for validation:</p>
+    <div class="grid">
+      <div>
+        <h3>Valid (with clamping)</h3>
+        <pre>{
+  "_meta": {"version": "1.1.0", "exportedAt": "2025-08-27T16:12:00Z"},
+  "settings": {
+    "dpiInline": 999,
+    "dpiDisplay": 50,
+    "simpleMathFontOutgoing": "Papyrus",
+    "renderServer": "WordPress",
+    "sendBehavior": "ALWAYS"
+  }
+}</pre>
+        <p class="hint">Expected: dpiInline→400, dpiDisplay→100, font→fallback to serif, renderServer→wordpress, sendBehavior→always.</p>
+      </div>
+      <div>
+        <h3>Invalid (schema)</h3>
+        <pre>{"dpiInline": 300}</pre>
+        <p class="hint">Expected: Error “Invalid JSON structure. Expected { settings }”.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>🔁 Propagation & Storage</h2>
+    <ul>
+      <li>After Apply, confirm Gmail tabs receive a <code>SETTINGS_UPDATED</code> message (use DevTools in Gmail tab).</li>
+      <li>Simulate sync quota exceed (if possible) and verify fallback to <code>chrome.storage.local</code> with warning.</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>🦾 Accessibility</h2>
+    <ul>
+      <li>Import preview is inline (not a modal) and announced via aria-live.</li>
+      <li>Keyboard focus moves to preview on open and returns to Import on Apply/Cancel.</li>
+      <li>Buttons and messages are accessible via keyboard and screen readers.</li>
+    </ul>
+  </div>
+
+</body>
+</html>

@@ -363,6 +363,26 @@
             transform: translateY(0);
         }
 
+        .warning-message {
+            position: fixed;
+            bottom: 60px;
+            right: 20px;
+            background: #fbbc04;
+            color: #202124;
+            padding: 12px 20px;
+            border-radius: 4px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.3s;
+            z-index: 1000;
+        }
+
+        .warning-message.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
         .skip-link {
             position: absolute;
             top: -40px;
@@ -421,7 +441,7 @@
                 <span>⚙️</span>
                 TeX for Gmail Options
             </h1>
-            <div class="version">Version 1.0.0</div>
+            <div class="version" id="versionDisplay">Version</div>
         </header>
 
         <main id="main-content" class="settings-content" role="main" aria-labelledby="page-title">
@@ -592,6 +612,36 @@
                     </div>
                 </section>
 
+                <!-- Import/Export Section -->
+                <section class="section" aria-labelledby="import-export-heading">
+                    <h2 id="import-export-heading">Settings Backup</h2>
+
+                    <div class="form-group">
+                        <label id="backup-help" class="radio-description">
+                            Export your current settings to a local JSON file, or import a JSON file to restore settings. No data leaves this device.
+                        </label>
+                    </div>
+
+                    <div class="form-group" style="display: flex; gap: 12px; flex-wrap: wrap;">
+                        <button type="button" class="btn-secondary" id="exportSettingsButton" aria-describedby="backup-help">Export Settings</button>
+                        <button type="button" class="btn-secondary" id="importSettingsButton" aria-describedby="backup-help">Import Settings</button>
+                        <input type="file" id="importFileInput" accept="application/json,.json" style="display:none" aria-hidden="true">
+                    </div>
+
+                    <!-- Inline import preview (not a modal) -->
+                    <div id="importPreviewSection" class="preview-area" style="display:none; flex-direction: column; align-items: stretch;" aria-live="polite">
+                        <div style="margin-bottom: 8px; color:#202124; font-weight:600;">Import Preview</div>
+                        <div id="importSummary" class="radio-description" style="margin-bottom: 8px;">
+                            Review the changes below. Apply to confirm or Cancel to discard.
+                        </div>
+                        <ul id="importChangesList" style="list-style: none; padding: 0; margin: 0 0 12px 0; max-height: 200px; overflow:auto;"></ul>
+                        <div style="display:flex; gap:8px; justify-content:flex-end;">
+                            <button type="button" class="btn-secondary" id="cancelImportButton">Cancel</button>
+                            <button type="button" class="btn-primary" id="applyImportButton">Apply Import</button>
+                        </div>
+                    </div>
+                </section>
+
                 <!-- Keyboard Shortcuts Reference -->
                 <section class="section" aria-labelledby="shortcuts-heading">
                     <h2 id="shortcuts-heading">Keyboard Shortcuts Reference</h2>
@@ -626,6 +676,7 @@
     </div>
 
     <div class="success-message" id="successMessage">Settings saved successfully!</div>
+    <div class="warning-message" id="warningMessage" role="status" aria-live="polite"></div>
 
     <script src="options.js"></script>
 </body>
