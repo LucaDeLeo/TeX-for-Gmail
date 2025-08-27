@@ -1,24 +1,101 @@
-# TeX for Gmail - Product Requirements Document
+# TeX for Gmail Product Requirements Document (PRD)
 
 ## 📌 Document Information
 
 **Version:** 3.0  
 **Status:** UPDATED  
-**Last Updated:** 2025-08-14  
+**Last Updated:** 2025-08-27  
 **Product Owner:** Product Team  
 **Target Release:** Q3 2025
 
-## 🎯 Product Vision
+## Goals and Background Context
 
-TeX for Gmail and Inbox (TFG) enables users to seamlessly use TeX mathematical notation in emails, both for reading and writing. The extension provides multiple rendering options, from simple HTML-based math to rich server-rendered images, ensuring beautiful mathematical communication accessible to all recipients.
+### Goals
+- Enable Gmail users to write and send beautifully rendered LaTeX.
+- Seamless Gmail integration without disrupting workflow.
+- Universal readability for recipients without extensions.
+- Flexible online (images) and offline (HTML/CSS) rendering options.
+- Near real-time, performant rendering with safe defaults.
 
-## 🚀 Product Goals
+### Background Context
+TeX for Gmail (TFG) augments Gmail compose and read views to recognize LaTeX patterns and render math seamlessly. It supports Rich Math via external image services (CodeCogs primary with WordPress fallback) and Simple Math via HTML/CSS for offline use. The design emphasizes minimal UI intrusion, reliability, and keeping original content recoverable.
 
-1. **Simplify Mathematical Communication:** Enable Gmail users to write and send beautifully rendered mathematical equations
-2. **Seamless Integration:** Work naturally within Gmail's interface without disrupting workflow  
-3. **Universal Accessibility:** Ensure recipients can view rendered math without installing the extension
-4. **Flexible Rendering Options:** Support both online (image-based) and offline (HTML-based) rendering
-5. **Performance Excellence:** Deliver instant rendering with minimal resource usage
+### Change Log
+| Date       | Version | Description                                                 | Author |
+|------------|---------|-------------------------------------------------------------|--------|
+| 2025-08-27 | 3.0.1   | Align PRD with fallback policy, DPI defaults, API updates | sm     |
+| 2025-08-14 | 3.0     | PRD refresh; added v1.1 features, options, shortcuts       | PM     |
+
+## Requirements
+
+### Functional (FR)
+- FR1: Detect inline math using `$...$`.
+- FR2: Detect display math using `$$...$$`.
+- FR3: Detect inline math using `\(...\)`.
+- FR4: Detect display math using `\[...\]`.
+- FR5: Process edits in near real time with ~500ms debounce.
+- FR6: Validate patterns (no line breaks inside delimiters).
+- FR7: Exclude currency-like patterns (e.g., `$100`, `$5.99`).
+- FR8: Reject LaTeX with leading/trailing spaces inside delimiters.
+- FR9: Rich Math mode: render images via external servers (CodeCogs primary, WordPress fallback).
+- FR10: Simple Math mode: render with HTML/CSS for offline use.
+- FR11: Naive TeX detection (optional) for `x^2`, `a_n`, `e^(iπ)`.
+- FR12: Abbreviation expansion (e.g., `\bR → \mathbb R`).
+- FR13: Theorem-like environment wrappers with color themes.
+- FR14: Click-to-edit restores original LaTeX source from rendered images.
+- FR15: Options page to configure server, DPI, fonts, visibility, shortcuts.
+- FR16: Keyboard shortcuts: F8/F9 one-shot; Cmd/Ctrl+F8/F9 continuous.
+- FR17: Reading mode rendering via button and Gmail “More” menu option.
+- FR18: Server fallback with per-image timeout (4–6s) and single retry.
+- FR19: Send behavior control (Always/Never/Ask) with confirmation dialog.
+
+### Non Functional (NFR)
+- NFR1: Render time target p95 < 500ms after debounce.
+- NFR2: API rate limit ≤ 60 calls per minute.
+- NFR3: Memory usage < 50MB during active use.
+- NFR4: CPU usage < 5% while idle; efficient DOM observers.
+- NFR5: HTTPS-only calls to external services.
+- NFR6: Minimal permissions (activeTab, storage, host permissions for Gmail).
+- NFR7: Privacy notice: LaTeX content sent to external services in Rich Math.
+- NFR8: Compatibility: Chrome 88+ (MV3), new Gmail UI.
+- NFR9: Reliability: server fallback, graceful degradation, error recovery.
+- NFR10: Accessibility: aim for WCAG AA for options UI and interactions.
+
+## User Interface Design Goals
+
+### Overall UX Vision
+Integrate unobtrusively into Gmail. Provide a simple toggle button, sensible defaults, and fast feedback. Keep original content recoverable and preserve cursor positions during rendering.
+
+### Key Interaction Paradigms
+- Compose toolbar toggle (per-compose state).
+- One-shot rendering (F8/F9) and continuous modes (Cmd/Ctrl+F8/F9).
+- Click-to-edit rendered images to restore LaTeX.
+- Reading mode overlay rendering and “More” menu integration.
+- Options page for configuration; toast notifications for state and errors.
+
+### Core Screens and Views
+- Gmail Compose (contenteditable area + formatting toolbar)
+- Gmail Reading View (message toolbar + message body)
+- Extension Options Page (settings and previews)
+
+### Accessibility: WCAG AA
+Keyboard-operable controls, aria-live announcements for toasts and state changes; high-contrast friendly UI.
+
+### Branding
+Follow Gmail’s visual language; minimal, neutral styling with subtle accents for states (success/error/info toasts).
+
+### Target Device and Platforms: Desktop Only
+Chrome on desktop (Windows, macOS, Linux). Gmail web interface only.
+
+## Technical Assumptions
+
+- Platform: Chrome Extension, Manifest V3, content script architecture (no background worker).
+- Language/Runtime: JavaScript (ES6+), DOM APIs, MutationObserver.
+- External Services: CodeCogs (primary) and WordPress (fallback) for image rendering.
+- Rendering Policy: Inline uses no style prefix; display uses `\displaystyle`; DPI defaults 200/300.
+- Fallback Policy: Per-image timeout 4–6s; at most 1 retry per server; degrade to Simple Math.
+- Storage: `chrome.storage.sync` with fallback to `chrome.storage.local` and in-memory defaults.
+- Testing: HTML harnesses and Playwright (manual/visual) for critical flows.
 
 ## 📋 Functional Requirements
 
@@ -45,13 +122,20 @@ TeX for Gmail and Inbox (TFG) enables users to seamlessly use TeX mathematical n
 - Server options:
   - **CodeCogs:** More features, supports complex LaTeX
   - **WordPress:** More reliable, simpler formulas only
-- Magnification options: 100% or 300% (default)
+- DPI defaults and range:
+  - Inline: 200 DPI (default, configurable 100–400)
+  - Display: 300 DPI (default, configurable 100–400)
+- Fallback policy:
+  - Primary server: CodeCogs; on timeout/error, automatically fall back to WordPress
+  - Per-image load timeout: 4–6 seconds; at most 1 retry per server
+  - If both servers fail, gracefully degrade to Simple Math mode with user notification
 
 ##### Simple Math Mode  
 - Replaces LaTeX with HTML markup
 - Works offline without external servers
 - Customizable font styling via CSS
 - Handles common mathematical expressions
+ - Used as last-resort fallback when external renderers fail
 
 ##### Guess Naive TeX Mode
 - Detects informal mathematical notation (e.g., `x^10`)
@@ -119,7 +203,8 @@ Scope: Per compose window (independent states)
 
 User-configurable settings:
 - Rendering server selection (CodeCogs/WordPress)
-- Magnification level (100%/300%)
+- Server fallback toggle (enable/disable automatic fallback)
+- Image quality (DPI sliders): Inline 200 default, Display 300 default (range 100–400)
 - Font customization for Simple Math (separate for outgoing/incoming)
 - Button visibility toggles (Compose/Read buttons)
 - Keyboard shortcut enable/disable
@@ -135,7 +220,7 @@ User-configurable settings:
              display:inline-block;">
   <img src="[render_url]" 
        alt="$latex_source$" 
-       style="vertical-align:middle;">
+       style="vertical-align:-0.2em;"> <!-- baseline alignment requirement -->
 </span>
 
 <!-- Display Math Template -->
@@ -218,12 +303,12 @@ tex-for-gmail/
 ### 3.3 API Integration Specification
 
 ```javascript
-// CodeCogs URL Generation (Target after Story 3.1 fixes)
+// CodeCogs URL Generation (post Story 3.1)
 function getCodeCogsUrl(latex, isDisplay) {
   const encoded = encodeURIComponent(latex);
-  const dpi = isDisplay ? '300' : '200';  // Increased from 150/110
-  // Proper inline vs display handling
-  const displayPrefix = isDisplay ? '\\displaystyle' : '\\inline';
+  const dpi = isDisplay ? '300' : '200';
+  // Proper inline vs display handling: no inline prefix; use \displaystyle for display
+  const displayPrefix = isDisplay ? '\\displaystyle' : '';
   return `https://latex.codecogs.com/png.image?\\dpi{${dpi}}${displayPrefix}%20${encoded}`;
 }
 
@@ -232,6 +317,11 @@ function getWordPressUrl(latex) {
   const encoded = encodeURIComponent(latex);
   return `https://s0.wp.com/latex.php?latex=${encoded}&bg=ffffff&fg=000000&s=0`;
 }
+
+// Fallback Policy (high level)
+// 1) Attempt CodeCogs with 4–6s timeout
+// 2) On error/timeout and if fallback enabled, attempt WordPress once
+// 3) If both fail, render with Simple Math (HTML) and notify user
 ```
 
 ## 🔒 Privacy & Security
@@ -280,6 +370,7 @@ function getWordPressUrl(latex) {
 - **Graceful Degradation:** Fall back to Simple Math if servers unavailable
 - **Error Recovery:** Show original LaTeX on render failure
 - **Status Checking:** Direct server status verification links provided
+ - **Timeouts & Retries:** Per-image load timeout 4–6 seconds; at most 1 retry per server
 
 ## 🎮 User Scenarios
 
@@ -413,12 +504,17 @@ Based on user feedback from JessRiedel, the following issues need addressing:
 - Single `$...$` should render inline (small, flows with text)
 - Double `$$...$$` should render display (large, centered, own line)
 **Current:** Both render as display mode with only size difference
-**Target Fix:** Proper inline/display distinction with correct LaTeX mode selection
+**Target Fix:** Proper inline/display distinction with correct LaTeX mode selection; no stray `$$` delimiters in output
 
 #### 4. Baseline Alignment 
 **Issue:** Inline equations don't align properly with surrounding text baseline
 **Visual Impact:** Equations appear shifted up/down relative to text
 **Target Fix:** Use proper vertical-align CSS and baseline positioning
+
+## Epic List
+
+- Epic 1: Enhanced Rendering & LaTeX Support
+- Epic 2: User Control & Polish
 
 ## 📘 Development Epic Structure
 
@@ -437,6 +533,7 @@ Based on user feedback from JessRiedel, the following issues need addressing:
 - Implement Guess Naive TeX (auto-detect informal math)
 - Add WordPress as fallback server with auto-switching
 - Server health monitoring and graceful degradation
+ - Add per-image load timeouts and single-retry fallback policy
 
 **Story 3.2: Extended LaTeX Patterns & Features**
 - Support \(...\) and \[...\] delimiters
@@ -535,3 +632,32 @@ Based on user feedback from JessRiedel, the following issues need addressing:
 
 **Document Status:** UPDATED WITH FULL FEATURE SET  
 **Next Review:** Post-implementation testing phase
+
+## Checklist Results Report
+
+Pending: Will be populated after running the PM checklist with stakeholders.
+
+## Next Steps
+
+### UX Expert Prompt
+Use this PRD to validate UI flows for compose/read modes and refine accessibility to WCAG AA.
+
+### Architect Prompt
+Confirm content-script architecture, finalize fallback/timeout handling, and verify storage/event flows.
+
+### Actionable Checklist
+- Reliability: Add per-image load timeout (4–6s) and single-retry fallback (CodeCogs → WordPress), gated by `serverFallback` setting; show toasts on fallback/degrade.
+- DPI Compliance: Set defaults to Inline 200 / Display 300 across `src/content.js`, `src/options.js`, and `src/options.html`; ensure storage change listeners update runtime values.
+- Display Math Correctness: Prevent stray `$$` artifacts; ensure processed/error nodes aren’t reprocessed; add regression test page covering mixed inline/display.
+- Baseline Alignment: Tune inline images to `vertical-align: -0.2em` and re-verify in inline text contexts.
+- Delimiters/Currency: Add tests for `\(...\)`, `\[...\]`; verify currency exclusions (`$9.99`, `$1,000`, `$5M`) while allowing `$1 + 1 = 2$`.
+- Persistence/Shortcuts: Verify `chrome.storage` persistence and keyboard shortcuts (F8/F9, Cmd/Ctrl variants) in live Gmail compose/read.
+- QA + Release: Run manual/Playwright checks in Gmail, update README/CHANGELOG, bump version, and tag release.
+
+### Acceptance Gates
+- Fallback/Timeout: On simulated CodeCogs failure, WordPress fallback succeeds within ≤ 12s total; user sees fallback toast; no thrashing between servers.
+- DPI: Default image URLs include `\\dpi{200}` (inline) and `\\dpi{300}` (display); changing sliders reflects in subsequent renders without reload.
+- Display Correctness: For inputs with `$$…$$`, output has a single display wrapper and no literal `$$` siblings; bracket variants behave equivalently.
+- Baseline: Inline `x^2` aligns within ±3px of surrounding baseline at 16px body font in visual diff.
+- Currency/Delimiters: Currency examples are not rendered; escaped dollars `\$` show as `$`; `\(...\)` and `\[...\]` pass tests.
+- Persistence/Shortcuts: Settings persist across sessions and tabs; shortcuts operate in Gmail without conflicting with native shortcuts, and respect the enable/disable setting.

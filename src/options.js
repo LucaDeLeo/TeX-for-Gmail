@@ -91,6 +91,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // Initialize options page
 async function initializeOptions() {
     showLoading(true);
+    setVersionDisplay();
     
     try {
         // Migrate settings from sessionStorage if needed
@@ -111,6 +112,18 @@ async function initializeOptions() {
         populateForm(DEFAULT_SETTINGS);
     } finally {
         showLoading(false);
+    }
+}
+
+function setVersionDisplay() {
+    try {
+        const el = document.getElementById('versionDisplay');
+        if (!el || !chrome.runtime || !chrome.runtime.getManifest) return;
+        const manifest = chrome.runtime.getManifest();
+        const ver = manifest.version_name || manifest.version || '';
+        el.textContent = `Version ${ver}`;
+    } catch (e) {
+        // no-op
     }
 }
 
@@ -298,21 +311,7 @@ function populateForm(settings) {
 
 // Get form values as settings object
 function getFormValues() {
-    return {
-        sendBehavior: document.querySelector('input[name="sendBehavior"]:checked').value,
-        renderServer: document.getElementById('renderServer').value,
-        dpiInline: parseInt(document.getElementById('dpiInline').value),
-        dpiDisplay: parseInt(document.getElementById('dpiDisplay').value),
-        simpleMathFontOutgoing: document.getElementById('simpleMathFontOutgoing').value.trim(),
-        simpleMathFontIncoming: document.getElementById('simpleMathFontIncoming').value.trim(),
-        showComposeButton: document.getElementById('showComposeButton').checked,
-        showReadButton: document.getElementById('showReadButton').checked,
-        enableKeyboardShortcuts: document.getElementById('enableKeyboardShortcuts').checked,
-        enableNaiveTeX: document.getElementById('enableNaiveTeX').checked,
-        enableSimpleMath: document.getElementById('enableSimpleMath').checked,
-        // Preserve other settings not in the form
-        ...settingsCache,
-        // Override with form values
+    const formValues = {
         sendBehavior: document.querySelector('input[name="sendBehavior"]:checked').value,
         renderServer: document.getElementById('renderServer').value,
         dpiInline: parseInt(document.getElementById('dpiInline').value),
@@ -325,6 +324,9 @@ function getFormValues() {
         enableNaiveTeX: document.getElementById('enableNaiveTeX').checked,
         enableSimpleMath: document.getElementById('enableSimpleMath').checked
     };
+    
+    // Preserve other settings not in the form and override with form values
+    return { ...settingsCache, ...formValues };
 }
 
 // Attach event listeners
@@ -334,6 +336,24 @@ function attachEventListeners() {
     
     // Reset button
     document.getElementById('resetButton').addEventListener('click', handleReset);
+
+    // Export/Import buttons
+    const exportBtn = document.getElementById('exportSettingsButton');
+    const importBtn = document.getElementById('importSettingsButton');
+    const importFileInput = document.getElementById('importFileInput');
+
+    if (exportBtn) exportBtn.addEventListener('click', handleExportSettings);
+    if (importBtn) importBtn.addEventListener('click', () => {
+        lastImportTrigger = document.activeElement; // store focus return target
+        importFileInput && importFileInput.click();
+    });
+    if (importFileInput) importFileInput.addEventListener('change', handleImportFileSelected);
+    
+    // Import preview actions
+    const applyBtn = document.getElementById('applyImportButton');
+    const cancelBtn = document.getElementById('cancelImportButton');
+    if (applyBtn) applyBtn.addEventListener('click', applyPendingImport);
+    if (cancelBtn) cancelBtn.addEventListener('click', cancelPendingImport);
     
     // DPI sliders
     document.getElementById('dpiInline').addEventListener('input', (e) => {
@@ -370,6 +390,228 @@ function attachEventListeners() {
             handleSave();
         }
     });
+}
+
+// ===== Import/Export Helpers =====
+let pendingImportedSettings = null;
+let lastImportTrigger = null;
+
+async function handleExportSettings() {
+    try {
+        // Use current form values as the current state for export
+        const current = getFormValues();
+        const recognized = pickRecognizedSettings(current);
+        const meta = await buildExportMeta();
+        const exportObj = { _meta: meta, settings: recognized };
+
+        const json = JSON.stringify(exportObj, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = buildExportFilename();
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        showSuccess('Settings exported to JSON');
+    } catch (err) {
+        console.error('Export failed', err);
+        showError('Failed to export settings');
+    }
+}
+
+function pickRecognizedSettings(obj) {
+    const out = {};
+    Object.keys(DEFAULT_SETTINGS).forEach((k) => {
+        if (Object.prototype.hasOwnProperty.call(obj, k)) {
+            out[k] = obj[k];
+        }
+    });
+    return out;
+}
+
+async function buildExportMeta() {
+    // chrome.runtime.getManifest() available on extension pages
+    const manifest = chrome.runtime.getManifest ? chrome.runtime.getManifest() : null;
+    const version = manifest && manifest.version ? manifest.version : '0.0.0';
+    const exportedAt = new Date().toISOString(); // ISO8601 UTC with Z
+    return { version, exportedAt };
+}
+
+function buildExportFilename(date = new Date()) {
+    // UTC date parts
+    const y = date.getUTCFullYear();
+    const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(date.getUTCDate()).padStart(2, '0');
+    const hh = String(date.getUTCHours()).padStart(2, '0');
+    const mm = String(date.getUTCMinutes()).padStart(2, '0');
+    return `tex-for-gmail-settings-${y}${m}${d}-${hh}${mm}.json`;
+}
+
+function handleImportFileSelected(e) {
+    const file = e.target.files && e.target.files[0];
+    // Reset the input so selecting the same file again will trigger change
+    e.target.value = '';
+    if (!file) return;
+
+    // Basic type check
+    const nameOk = file.name.toLowerCase().endsWith('.json');
+    const typeOk = !file.type || file.type === 'application/json' || file.type === 'text/json';
+    if (!nameOk || !typeOk) {
+        showError('Unsupported file type. Please select a .json file.');
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+        try {
+            const text = String(evt.target.result || '');
+            const parsed = JSON.parse(text);
+            if (!parsed || typeof parsed !== 'object' || typeof parsed.settings !== 'object') {
+                showError('Invalid JSON structure. Expected { settings }');
+                return;
+            }
+            const sanitized = sanitizeImportedSettings(parsed.settings);
+            const current = await loadSettings();
+            showImportPreview(current, sanitized);
+            pendingImportedSettings = sanitized;
+        } catch (err) {
+            console.error('Import parse error', err);
+            showError('Invalid settings file format. Please check the file and try again.');
+        }
+    };
+    reader.onerror = () => {
+        showError('Unable to read selected file');
+    };
+    reader.readAsText(file, 'utf-8');
+}
+
+function sanitizeImportedSettings(input) {
+    const base = { ...DEFAULT_SETTINGS };
+    const out = { ...base };
+    const keys = Object.keys(DEFAULT_SETTINGS);
+    keys.forEach((k) => {
+        if (!Object.prototype.hasOwnProperty.call(input, k)) return;
+        let v = input[k];
+        const def = base[k];
+        const type = typeof def;
+
+        if (type === 'boolean') {
+            out[k] = Boolean(v);
+            return;
+        }
+        if (type === 'number') {
+            let num = Number(v);
+            if (!Number.isFinite(num)) { out[k] = def; return; }
+            if (k === 'dpiInline' || k === 'dpiDisplay') {
+                num = Math.min(400, Math.max(100, Math.round(num)));
+            }
+            out[k] = num;
+            return;
+        }
+        if (type === 'string') {
+            if (k === 'sendBehavior') {
+                const normalized = String(v).toLowerCase();
+                out[k] = ['always', 'never', 'ask'].includes(normalized) ? normalized : def;
+                return;
+            }
+            if (k === 'renderServer') {
+                const normalized = String(v).toLowerCase();
+                out[k] = ['codecogs', 'wordpress'].includes(normalized) ? normalized : def;
+                return;
+            }
+            if (k === 'simpleMathFontOutgoing' || k === 'simpleMathFontIncoming') {
+                const sanitized = sanitizeFontName(String(v));
+                out[k] = validateFont(sanitized) ? sanitized : def;
+                return;
+            }
+            // Generic string
+            out[k] = String(v);
+            return;
+        }
+        // Unknown type -> ignore (keeps default)
+    });
+    return out;
+}
+
+function showImportPreview(current, proposed) {
+    const container = document.getElementById('importPreviewSection');
+    const list = document.getElementById('importChangesList');
+    if (!container || !list) return;
+
+    // Build changes list
+    list.innerHTML = '';
+    let changeCount = 0;
+    Object.keys(DEFAULT_SETTINGS).forEach((k) => {
+        const before = current[k];
+        const after = proposed[k];
+        if (JSON.stringify(before) !== JSON.stringify(after)) {
+            changeCount++;
+            const li = document.createElement('li');
+            li.style.padding = '6px 8px';
+            li.style.border = '1px solid #e8eaed';
+            li.style.borderRadius = '4px';
+            li.style.background = '#fff';
+            li.style.marginBottom = '6px';
+            li.textContent = `${k}: ${formatValue(before)} → ${formatValue(after)}`;
+            list.appendChild(li);
+        }
+    });
+
+    if (changeCount === 0) {
+        const li = document.createElement('li');
+        li.textContent = 'No changes detected. Applying will keep settings unchanged.';
+        list.appendChild(li);
+    }
+
+    container.style.display = 'flex';
+    // Move focus to preview area for accessibility
+    const applyBtn = document.getElementById('applyImportButton');
+    if (applyBtn) applyBtn.focus();
+}
+
+function formatValue(v) {
+    if (typeof v === 'boolean') return v ? 'true' : 'false';
+    if (typeof v === 'number') return String(v);
+    if (typeof v === 'string') return v;
+    try { return JSON.stringify(v); } catch { return String(v); }
+}
+
+async function applyPendingImport() {
+    if (!pendingImportedSettings) { cancelPendingImport(); return; }
+    try {
+        await saveSettings(pendingImportedSettings);
+        populateForm(pendingImportedSettings);
+        updateAllPreviews(pendingImportedSettings);
+        showSuccess('Settings imported successfully');
+    } catch (err) {
+        showError('Failed to apply imported settings');
+    } finally {
+        pendingImportedSettings = null;
+        hideImportPreview();
+        // Restore focus to the triggering control
+        if (lastImportTrigger && typeof lastImportTrigger.focus === 'function') {
+            lastImportTrigger.focus();
+        }
+        lastImportTrigger = null;
+    }
+}
+
+function cancelPendingImport() {
+    pendingImportedSettings = null;
+    hideImportPreview();
+    if (lastImportTrigger && typeof lastImportTrigger.focus === 'function') {
+        lastImportTrigger.focus();
+    }
+    lastImportTrigger = null;
+}
+
+function hideImportPreview() {
+    const container = document.getElementById('importPreviewSection');
+    if (container) container.style.display = 'none';
+    const list = document.getElementById('importChangesList');
+    if (list) list.innerHTML = '';
 }
 
 // Handle save button click
@@ -590,24 +832,45 @@ function showError(message) {
 // Show warning message
 function showWarning(message) {
     console.warn(message);
-    // Could show a less intrusive warning UI element
+    // Visible, non-blocking warning toast/banner
+    const warnEl = document.getElementById('warningMessage');
+    if (warnEl) {
+        warnEl.textContent = message;
+        warnEl.classList.add('show');
+        setTimeout(() => warnEl.classList.remove('show'), 5000);
+    }
+    // Announce via polite status region
+    const statusRegion = document.getElementById('status-region');
+    if (statusRegion) {
+        statusRegion.textContent = message;
+        setTimeout(() => { statusRegion.textContent = ''; }, 4000);
+    }
 }
 
 // Notify all tabs about settings change
 function notifySettingsChange(settings) {
-    // Send message to all tabs
-    chrome.tabs.query({}, (tabs) => {
-        tabs.forEach(tab => {
-            if (tab.url && tab.url.includes('mail.google.com')) {
-                chrome.tabs.sendMessage(tab.id, {
-                    type: 'SETTINGS_UPDATED',
-                    settings: settings
-                }).catch(() => {
-                    // Tab might not have content script loaded
-                });
-            }
+    // Best-effort runtime broadcast (does not require 'tabs' permission)
+    try {
+        if (chrome.runtime && typeof chrome.runtime.sendMessage === 'function') {
+            try { chrome.runtime.sendMessage({ type: 'SETTINGS_UPDATED', settings }); } catch (_) { /* no-op */ }
+        }
+    } catch (_) { /* no-op */ }
+
+    // Only use tabs messaging if the extension explicitly declares the 'tabs' permission
+    try {
+        const manifest = chrome.runtime && chrome.runtime.getManifest ? chrome.runtime.getManifest() : null;
+        const hasTabs = !!(manifest && Array.isArray(manifest.permissions) && manifest.permissions.includes('tabs'));
+        if (!hasTabs) return;
+        if (!chrome.tabs || typeof chrome.tabs.query !== 'function') return;
+
+        chrome.tabs.query({}, (tabs) => {
+            tabs.forEach(tab => {
+                if (tab.url && tab.url.includes('mail.google.com')) {
+                    try { chrome.tabs.sendMessage(tab.id, { type: 'SETTINGS_UPDATED', settings }); } catch (_) { /* no-op */ }
+                }
+            });
         });
-    });
+    } catch (_) { /* no-op */ }
 }
 
 // Setup accessibility features

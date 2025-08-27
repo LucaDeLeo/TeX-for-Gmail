@@ -1,0 +1,20 @@
+{
+  "_meta": {
+    "version": "1.1.0",
+    "exportedAt": "2025-08-27T16:12:00Z"
+  },
+  "settings": {
+    "sendBehavior": "always",
+    "renderServer": "wordpress",
+    "dpiInline": 150,
+    "dpiDisplay": 250,
+    "simpleMathFontOutgoing": "Arial",
+    "simpleMathFontIncoming": "Georgia",
+    "showComposeButton": false,
+    "showReadButton": true,
+    "enableKeyboardShortcuts": false,
+    "enableNaiveTeX": true,
+    "enableSimpleMath": true,
+    "unknownKey": "should be ignored"
+  }
+}
