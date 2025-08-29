@@ -127,7 +127,7 @@ Acceptance Criteria
 5. Post-apply, settings propagate to content scripts; no regression to existing Options behaviors.
 
 ### Story 4.5 Copy LaTeX Source & Context Menu
-Status: Proposed
+Status: Done
 
 Acceptance Criteria
 1. Copy LaTeX available via hover button and right‑click menu on equations; copies exact original with delimiters.
@@ -141,8 +141,8 @@ Acceptance Criteria
 Goal: Address critical bugs identified in content.js behavior analysis to restore broken functionality and improve reliability.
 
 ### Story 5.1 Fix Missing Functions & Unified Toggle State Model
-Status: Proposed ✅ Dev Notes Added
-**⚠️ CRITICAL FINDING**: Functions called but NOT DEFINED in content.js (lines 3709, 3724, 3725)
+Status: Done (Resolved via refactoring)
+**Note**: Original line references (3709+) outdated after file refactoring from 3700+ to 2431 lines
 
 Acceptance Criteria
 1. Replace all broken function references with correct implementations (setupContentObserver → setupAutoRenderObserver, etc.).
@@ -153,7 +153,7 @@ Acceptance Criteria
 6. No console errors when switching between rendering modes.
 
 ### Story 5.2 Fix Read-Mode Overlay Interaction & Send Detection
-Status: Proposed ✅ Dev Notes Added
+Status: Done
 
 Acceptance Criteria
 1. Read-mode overlay allows pointer events on math elements (Copy LaTeX, context menu).
@@ -163,7 +163,7 @@ Acceptance Criteria
 5. Send dialog appears consistently for all LaTeX pattern types per user settings.
 
 ### Story 5.3 UI State Consistency & Visual Polish
-Status: Proposed ✅ Dev Notes Added
+Status: Done
 **Debounce timing**: 150ms recommended for hover interactions
 
 Acceptance Criteria
@@ -174,7 +174,7 @@ Acceptance Criteria
 5. Currency detection handles edge cases correctly ($9.99 vs $1 + 1 = 2$).
 
 ### Story 5.4 Storage Migration & Font Validation Improvements
-Status: Proposed ✅ Dev Notes Added
+Status: Done
 **Font allowlist**: Expanded from 20 to 60+ fonts
 
 Acceptance Criteria
@@ -185,7 +185,7 @@ Acceptance Criteria
 5. Migration state tracked to prevent duplicate migrations.
 
 ### Story 5.5 Comprehensive Testing & QA Validation
-Status: Proposed ✅ Dev Notes Added
+Status: Done
 **Performance benchmark**: <500ms for 100 equations
 
 Acceptance Criteria

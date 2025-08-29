@@ -308,6 +308,6 @@ A: An alternative rendering mode using HTML/CSS instead of images. It works offl
 
 ⚠️ **Remember:** Your LaTeX is sent to external servers for rendering
 
-[Report Bug](https://github.com/yourusername/tex-for-gmail/issues) · [Request Feature](https://github.com/yourusername/tex-for-gmail/issues) · [View Roadmap](CONCERNS_AND_ROADMAP.md)
+[Report Bug](https://github.com/yourusername/tex-for-gmail/issues) · [Request Feature](https://github.com/yourusername/tex-for-gmail/issues)
 
 </div>

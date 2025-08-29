@@ -757,7 +757,39 @@
     return `https://s0.wp.com/latex.php?latex=${encoded}&bg=ffffff&fg=000000&s=${s}`;
   }
 
-  const ServerHealth = { codecogs: { failures: 0, lastCheck: 0 }, wordpress: { failures: 0, lastCheck: 0 }, resetThreshold: 300000, maxFailures: 3 };
+  const ServerHealth = { 
+    codecogs: { failures: 0, lastCheck: 0, consecutiveFailures: 0 }, 
+    wordpress: { failures: 0, lastCheck: 0, consecutiveFailures: 0 }, 
+    resetThreshold: 300000, // 5 minutes
+    maxFailures: 3,
+    getUserMessage() {
+      const bothDown = this.codecogs.consecutiveFailures >= 2 && this.wordpress.consecutiveFailures >= 2;
+      const codeCogsDown = this.codecogs.consecutiveFailures >= 2;
+      const wpDown = this.wordpress.consecutiveFailures >= 2;
+      
+      if (bothDown) {
+        return 'Math servers temporarily unavailable. Enable Simple Math in settings for offline rendering.';
+      } else if (codeCogsDown) {
+        return 'Primary math server slow. Switching to backup...';
+      } else if (wpDown) {
+        return 'Backup server issues detected. Using primary server...';
+      }
+      return null;
+    },
+    recordSuccess(server) {
+      if (this[server]) {
+        this[server].consecutiveFailures = 0;
+        this[server].failures = Math.max(0, this[server].failures - 1);
+      }
+    },
+    recordFailure(server) {
+      if (this[server]) {
+        this[server].failures++;
+        this[server].consecutiveFailures++;
+        this[server].lastCheck = Date.now();
+      }
+    }
+  };
   function checkServerHealth(server) {
     const now = Date.now();
     const health = ServerHealth[server];
@@ -940,8 +972,8 @@
         wrapper.removeChild(loadingIndicator);
       }
       // Reset server health on success
-      if ((img.src || '').includes('codecogs.com')) ServerHealth.codecogs.failures = Math.max(0, ServerHealth.codecogs.failures - 1);
-      if ((img.src || '').includes('wp.com')) ServerHealth.wordpress.failures = Math.max(0, ServerHealth.wordpress.failures - 1);
+      if ((img.src || '').includes('codecogs.com')) ServerHealth.recordSuccess('codecogs');
+      else if ((img.src || '').includes('wp.com')) ServerHealth.recordSuccess('wordpress');
     };
     
     img.onerror = function() {
@@ -950,19 +982,35 @@
       const isFromCodecogs = (img.src || '').includes('codecogs.com');
       const isFromWP = (img.src || '').includes('wp.com');
 
-      // First, try retry with same server
+      // First, try retry with same server using exponential backoff
       if (retryCount < maxRetries && !img.hasAttribute('data-retry-exhausted')) {
         retryCount++;
-        TeXForGmail.log(`Retrying LaTeX render, attempt ${retryCount}/${maxRetries}`);
+        const backoffMs = Math.min(1000 * Math.pow(2, retryCount - 1), 8000); // 1s, 2s, 4s, max 8s
+        TeXForGmail.log(`Retrying LaTeX render, attempt ${retryCount}/${maxRetries} (waiting ${backoffMs}ms)`);
+        
+        // Show user-friendly message on first retry only
+        if (retryCount === 1) {
+          showToast('Math server slow, retrying...', 'info');
+        }
+        
         setTimeout(() => {
-          img.src = img.src + '&retry=' + retryCount; // Force reload with cache bust
-        }, 500 * retryCount); // Exponential backoff
+          // Add timestamp to force cache bypass
+          const separator = img.src.includes('?') ? '&' : '?';
+          img.src = img.src.replace(/[?&]retry=\d+/, '') + separator + 'retry=' + Date.now();
+        }, backoffMs);
         return;
       }
       
       img.setAttribute('data-retry-exhausted', 'true');
       
-      if (isFromCodecogs) ServerHealth.codecogs.failures++; else if (isFromWP) ServerHealth.wordpress.failures++;
+      if (isFromCodecogs) ServerHealth.recordFailure('codecogs');
+      else if (isFromWP) ServerHealth.recordFailure('wordpress');
+      
+      // Show helpful message if servers are having issues
+      const healthMsg = ServerHealth.getUserMessage();
+      if (healthMsg && retryCount === maxRetries) {
+        showToast(healthMsg, 'warning');
+      }
 
       // Try one-time fallback to the other server before giving up
       if (fallbackAllowed && !img.getAttribute('data-fallback-attempted')) {
@@ -981,13 +1029,17 @@
         }
       }
       // If still failing, try Simple Math as last resort
-      if (settings.enableSimpleMath) {
+      if (settings.enableSimpleMath !== false) { // Default to true for better UX
         TeXForGmail.log('All image servers failed, attempting Simple Math fallback');
         const simpleMathElement = renderSimpleMath(latex, isDisplay, { isReadMode: false });
         if (simpleMathElement) {
           // Replace the failed image wrapper with Simple Math
           wrapper.parentNode.replaceChild(simpleMathElement, wrapper);
-          showToast('Using offline math rendering', 'info');
+          // More informative message based on failure reason
+          const errorMsg = (isFromCodecogs && ServerHealth.codecogs.failures > 2) ? 
+            'Math servers unavailable, using offline rendering' : 
+            'Using offline math rendering (faster & private)';
+          showToast(errorMsg, 'info');
           return;
         }
       }
@@ -999,9 +1051,28 @@
       const sourceText = isDisplay ? `$$${latex}$$` : `$${latex}$`;
       wrapper.textContent = sourceText;
       wrapper.classList.add('tex-render-error');
-      wrapper.setAttribute('title', 'Failed to render LaTeX - showing source');
+      wrapper.setAttribute('title', 'Failed to render LaTeX - click to copy source');
       wrapper.setAttribute('data-tex-source', sourceText);
-      try { showToast('Failed to render LaTeX — showing source', 'error'); } catch (_) {}
+      wrapper.style.cursor = 'pointer';
+      
+      // Provide actionable error message
+      const errorDetail = (ServerHealth.codecogs.failures >= ServerHealth.maxFailures && 
+                          ServerHealth.wordpress.failures >= ServerHealth.maxFailures) ?
+        'Math servers unreachable. Check internet connection or enable Simple Math in settings.' :
+        'Unable to render equation. Showing LaTeX source (click to copy).';
+      
+      try { showToast(errorDetail, 'error'); } catch (_) {}
+      
+      // Add click-to-copy functionality for failed renders
+      wrapper.onclick = async () => {
+        try {
+          await copyTextToClipboard(sourceText);
+          showToast('LaTeX source copied', 'info');
+        } catch (_) {
+          showToast('Could not copy to clipboard', 'error');
+        }
+      };
+      
       try { if (typeof localStorage !== 'undefined' && img.src) localStorage.setItem(`tex_${img.src}`, sourceText); } catch (_) {}
     };
     
