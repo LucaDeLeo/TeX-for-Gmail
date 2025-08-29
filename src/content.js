@@ -372,7 +372,8 @@
   const TeXForGmail = {
     observer: null,
     composeButtons: new WeakMap(),
-    readButtons: new WeakMap(), // Track buttons in read mode
+    // Use Map (not WeakMap) so we can iterate and clean up entries
+    readButtons: new Map(), // Track buttons in read mode
     processingStates: new WeakMap(),
     composeObservers: new WeakMap(), // Track observers per compose area
     
@@ -408,6 +409,8 @@
       
       // Load settings from chrome.storage
       this.loadSettings();
+      // Ensure live regions exist for announcements
+      ensureLiveRegions();
       
       // Load server preference from sessionStorage (for backward compatibility)
       try {
@@ -433,6 +436,9 @@
       
       // Set up global keyboard event handler
       this.setupKeyboardHandler();
+      // Initialize Copy LaTeX UI interactions
+      ensureCopyInteractions();
+      ensureContextMenu();
     },
     // Styles and helpers for non-destructive read-mode rendering
     ensureOverlayStyles() {
@@ -538,6 +544,7 @@
         simpleMathFontIncoming: 'serif',
         showComposeButton: true,
         showReadButton: true,
+        showCopyLatex: true,
         enableKeyboardShortcuts: true,
         enableNaiveTeX: false,
         enableSimpleMath: true,
@@ -1205,6 +1212,9 @@
       wrapper.setAttribute('data-latex', latex);
       wrapper.setAttribute('data-display', isDisplay);
       wrapper.setAttribute('data-render-mode', 'simple');
+      // Make Simple Math wrappers keyboard-focusable for a11y (QA Story 4.5)
+      wrapper.setAttribute('tabindex', '0');
+      wrapper.setAttribute('aria-label', 'Math. Press Tab for Copy, or open menu with Shift+F10.');
       
       // Add proper styling for inline vs display differentiation
       if (isDisplay) {
@@ -1315,7 +1325,7 @@
       
       wrapper.appendChild(container);
       return wrapper;
-      
+
     } catch (error) {
       TeXForGmail.log('Error in renderSimpleMath:', error);
       return null;
@@ -1478,6 +1488,7 @@
     img.style.cursor = 'pointer';
     img.setAttribute('role', 'button');
     img.setAttribute('aria-label', 'Click to edit LaTeX source');
+    img.setAttribute('tabindex', '0');
     
     // Store original source with delimiters for click-to-edit
     img.setAttribute('data-original-source', isDisplay ? `$$${latex}$$` : `$${latex}$`);
@@ -1928,7 +1939,11 @@
 
   // Task 3, 5: Main rendering function with double-render prevention
   function detectAndRenderLatex(composeArea, options = {}) {
-    if (!composeArea) return false;
+    // Allow call without explicit target: fall back to detected compose area (test harness convenience)
+    if (!composeArea) {
+      composeArea = findComposeArea();
+      if (!composeArea) return false;
+    }
     
     const { oneTimeRender = false, isReadMode = false } = options;
     
@@ -2355,6 +2370,371 @@
       toast.style.opacity = '0';
       setTimeout(() => toast.remove(), 300);
     }, CONFIG.toastDuration);
+  }
+
+  // Ensure aria-live regions exist for announcements in Gmail pages
+  function ensureLiveRegions() {
+    if (!document.getElementById('tex-live-status')) {
+      const status = document.createElement('div');
+      status.id = 'tex-live-status';
+      status.setAttribute('role', 'status');
+      status.setAttribute('aria-live', 'polite');
+      status.setAttribute('aria-atomic', 'true');
+      status.style.cssText = 'position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden;';
+      document.body.appendChild(status);
+    }
+    if (!document.getElementById('tex-live-alert')) {
+      const alert = document.createElement('div');
+      alert.id = 'tex-live-alert';
+      alert.setAttribute('role', 'alert');
+      alert.setAttribute('aria-live', 'assertive');
+      alert.setAttribute('aria-atomic', 'true');
+      alert.style.cssText = 'position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden;';
+      document.body.appendChild(alert);
+    }
+  }
+
+  // Announce a message via aria-live regions
+  function announce(message, priority = 'polite') {
+    const id = priority === 'assertive' ? 'tex-live-alert' : 'tex-live-status';
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = '';
+    // Force reflow to ensure SR announces repeated messages
+    void el.offsetHeight;
+    el.textContent = message;
+  }
+
+  // Get original LaTeX for a wrapper/image with precedence rules
+  // QA 4.5: Robust fallback when wrapper classes are missing
+  TeXForGmail.getOriginalLatex = function(node) {
+    if (!node) return null;
+    const isElement = node && node.nodeType === 1; // ELEMENT_NODE
+
+    // Helper: determine if an <img> looks like a math image
+    const isMathImage = (img) => {
+      if (!img || img.tagName !== 'IMG') return false;
+      if (img.getAttribute('data-original-source')) return true;
+      const alt = img.alt || '';
+      return /(\$\$[^$]+\$\$|\$[^$]+\$|\\\([^)*]+\\\)|\\\[[^\]]+\\\])/.test(alt);
+    };
+
+    // Try to find a known wrapper first
+    const wrapper = (isElement && node.closest)
+      ? node.closest('.tex-math-inline, .tex-math-display')
+      : null;
+
+    // Resolve candidate image (from wrapper or node itself/ancestors)
+    let img = null;
+    if (wrapper) {
+      img = wrapper.querySelector('img');
+    }
+    if (!img && isElement) {
+      if (node.tagName === 'IMG' && isMathImage(node)) {
+        img = node;
+      } else if (node.closest) {
+        const maybeImg = node.closest('img');
+        if (isMathImage(maybeImg)) img = maybeImg;
+      }
+      if (!img && node.querySelector) {
+        const nested = node.querySelector('img');
+        if (isMathImage(nested)) img = nested;
+      }
+    }
+
+    // Precedence 1: image data-original-source
+    if (img) {
+      const original = img.getAttribute('data-original-source');
+      if (original) return original;
+    }
+
+    // Precedence 2: wrapper data-latex with delimiters (only if wrapper known)
+    if (wrapper) {
+      const latex = wrapper.getAttribute('data-latex');
+      if (latex) {
+        const isDisplay = wrapper.classList.contains('tex-math-display');
+        return isDisplay ? `$$${latex}$$` : `$${latex}$`;
+      }
+    }
+
+    // Precedence 3: image alt text (already includes delimiters)
+    if (img && img.alt) return img.alt;
+
+    // Precedence 4: any ancestor with data-latex even without wrapper class
+    if (isElement && node.closest) {
+      const anyLatex = node.closest('[data-latex]');
+      if (anyLatex && anyLatex.getAttribute) {
+        const raw = anyLatex.getAttribute('data-latex');
+        // Attempt display hint if available
+        const displayHint = anyLatex.getAttribute('data-display');
+        const isDisplay = displayHint === 'true' || displayHint === 'block' || anyLatex.classList?.contains('tex-math-display');
+        return isDisplay ? `$$${raw}$$` : `$${raw}$`;
+      }
+    }
+
+    return null;
+  };
+
+  // Copy to clipboard with Clipboard API and fallback
+  async function copyTextToClipboard(text) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (e) {
+      // Fallback below
+    }
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.top = '-1000px';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      return ok;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Single reusable UI elements for Copy LaTeX feature
+  TeXForGmail.copyUI = { button: null, menu: null, currentWrapper: null, hideTimer: null };
+
+  function createCopyButton() {
+    if (TeXForGmail.copyUI.button) return TeXForGmail.copyUI.button;
+    const btn = document.createElement('button');
+    btn.className = 'tex-copy-button';
+    btn.type = 'button';
+    btn.textContent = 'Copy LaTeX';
+    btn.setAttribute('aria-label', 'Copy LaTeX');
+    // Ensure usable positioning even if stylesheet isn't loaded (test harness)
+    btn.style.position = btn.style.position || 'absolute';
+    btn.style.top = btn.style.top || '2px';
+    btn.style.right = btn.style.right || '2px';
+    btn.style.display = 'none';
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const wrapper = TeXForGmail.copyUI.currentWrapper || btn.closest('.tex-math-inline, .tex-math-display');
+      const source = TeXForGmail.getOriginalLatex(wrapper);
+      if (!source) {
+        showToast('Could not find LaTeX source', 'error');
+        announce('Copy failed: no LaTeX source found', 'assertive');
+        return;
+      }
+      const ok = await copyTextToClipboard(source);
+      if (ok) {
+        showToast('LaTeX copied to clipboard', 'info');
+        announce('LaTeX copied to clipboard', 'polite');
+      } else {
+        showToast('Copy to clipboard failed', 'error');
+        announce('Copy to clipboard failed', 'assertive');
+      }
+    });
+    TeXForGmail.copyUI.button = btn;
+    return btn;
+  }
+
+  function showCopyButton(wrapper) {
+    if (!wrapper || !wrapper.isConnected) return;
+    const settings = TeXForGmail.settings || {};
+    if (settings.showCopyLatex === false) return;
+    const btn = createCopyButton();
+    TeXForGmail.copyUI.currentWrapper = wrapper;
+    // Ensure wrapper is positioning context
+    const cs = window.getComputedStyle(wrapper);
+    if (!['relative','absolute','fixed','sticky'].includes(cs.position)) {
+      wrapper.style.position = 'relative';
+    }
+    if (btn.parentElement !== wrapper) {
+      // Remove from previous parent if any
+      if (btn.parentElement && btn.parentElement.contains(btn)) btn.parentElement.removeChild(btn);
+      wrapper.appendChild(btn);
+    }
+    btn.style.display = 'inline-flex';
+  }
+
+  function hideCopyButton() {
+    const btn = TeXForGmail.copyUI.button;
+    if (btn) {
+      btn.style.display = 'none';
+      TeXForGmail.copyUI.currentWrapper = null;
+    }
+  }
+
+  function ensureCopyInteractions() {
+    // Hover/focus handlers (delegated)
+    document.addEventListener('mouseover', (e) => {
+      const targetWrapper = e.target && (e.target.closest && e.target.closest('.tex-math-inline, .tex-math-display'));
+      if (targetWrapper) {
+        showCopyButton(targetWrapper);
+      } else if (!document.activeElement || !document.activeElement.closest('.tex-math-inline, .tex-math-display')) {
+        hideCopyButton();
+      }
+    }, true);
+    document.addEventListener('focusin', (e) => {
+      const targetWrapper = e.target && (e.target.closest && e.target.closest('.tex-math-inline, .tex-math-display'));
+      if (targetWrapper) {
+        showCopyButton(targetWrapper);
+      }
+    }, true);
+  }
+
+  // Minimal custom context menu for Copy LaTeX
+  function createCopyMenu() {
+    if (TeXForGmail.copyUI.menu) return TeXForGmail.copyUI.menu;
+    const menu = document.createElement('div');
+    menu.className = 'tex-copy-menu';
+    menu.setAttribute('role', 'menu');
+    // Base styles so it works without external CSS (test harness)
+    menu.style.position = 'fixed';
+    menu.style.zIndex = '10001';
+    menu.style.background = '#fff';
+    menu.style.color = '#202124';
+    menu.style.border = '1px solid #dadce0';
+    menu.style.borderRadius = '4px';
+    menu.style.minWidth = '140px';
+    menu.style.display = 'none';
+    const item = document.createElement('div');
+    item.className = 'tex-copy-menuitem';
+    item.setAttribute('role', 'menuitem');
+    item.tabIndex = 0;
+    item.textContent = 'Copy LaTeX';
+    // Minimal item styling for usability without stylesheet
+    item.style.padding = '8px 12px';
+    item.style.cursor = 'pointer';
+    item.addEventListener('mouseover', () => { item.style.background = '#e8f0fe'; });
+    item.addEventListener('mouseout', () => { item.style.background = ''; });
+    item.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      // Use the stored context target from the menu, fallback to currentWrapper
+      const menu = TeXForGmail.copyUI.menu;
+      const target = (menu && menu._contextTarget) || TeXForGmail.copyUI.currentWrapper;
+      const source = TeXForGmail.getOriginalLatex(target);
+      if (!source) {
+        showToast('Could not find LaTeX source', 'error');
+        announce('Copy failed: no LaTeX source found', 'assertive');
+        return closeCopyMenu();
+      }
+      const ok = await copyTextToClipboard(source);
+      if (ok) {
+        showToast('LaTeX copied to clipboard', 'info');
+        announce('LaTeX copied to clipboard', 'polite');
+      } else {
+        showToast('Copy to clipboard failed', 'error');
+        announce('Copy to clipboard failed', 'assertive');
+      }
+      closeCopyMenu();
+    });
+    menu.appendChild(item);
+    document.body.appendChild(menu);
+    TeXForGmail.copyUI.menu = menu;
+    return menu;
+  }
+
+  function openCopyMenu(x, y, wrapper) {
+    const settings = TeXForGmail.settings || {};
+    if (settings.showCopyLatex === false) return;
+    const menu = createCopyMenu();
+    // Store the target element directly on the menu for context menu operations
+    // This prevents loss of target if currentWrapper gets cleared
+    menu._contextTarget = wrapper;
+    TeXForGmail.copyUI.currentWrapper = wrapper;
+    menu.style.display = 'block';
+    menu.style.left = `${x}px`;
+    menu.style.top = `${y}px`;
+    // Focus first item for keyboard navigation
+    menu.querySelector('[role="menuitem"]').focus();
+    const onDocClick = (ev) => {
+      if (!menu.contains(ev.target)) closeCopyMenu();
+    };
+    const onKey = (ev) => {
+      if (ev.key === 'Escape') {
+        ev.preventDefault();
+        closeCopyMenu();
+      } else if (ev.key === 'Enter' || ev.key === ' ') {
+        const focused = document.activeElement;
+        if (menu.contains(focused)) focused.click();
+      }
+    };
+    // Store handlers for cleanup
+    menu._onDocClick = onDocClick;
+    menu._onKey = onKey;
+    setTimeout(() => {
+      document.addEventListener('click', onDocClick, true);
+      document.addEventListener('keydown', onKey, true);
+    }, 0);
+  }
+
+  function closeCopyMenu() {
+    const menu = TeXForGmail.copyUI.menu;
+    if (!menu) return;
+    menu.style.display = 'none';
+    if (menu._onDocClick) document.removeEventListener('click', menu._onDocClick, true);
+    if (menu._onKey) document.removeEventListener('keydown', menu._onKey, true);
+    menu._onDocClick = null;
+    menu._onKey = null;
+    menu._contextTarget = null; // Clear stored target
+  }
+
+  function ensureContextMenu() {
+    // Helper: detect a valid math target (wrapper or math <img>)
+    const findMathTarget = (target) => {
+      if (!target) return null;
+      if (target.closest) {
+        const w = target.closest('.tex-math-inline, .tex-math-display');
+        if (w) return w;
+      }
+      // Fallback: math image without wrapper
+      const asImg = target.tagName === 'IMG' ? target : (target.closest ? target.closest('img') : null);
+      if (asImg) {
+        const alt = asImg.alt || '';
+        const isMathAlt = /(\$\$[^$]+\$\$|\$[^$]+\$|\\\([^)*]+\\\)|\\\[[^\]]+\\\])/.test(alt);
+        if (isMathAlt || asImg.getAttribute('data-original-source')) {
+          return asImg;
+        }
+      }
+      return null;
+    };
+
+    document.addEventListener('contextmenu', (e) => {
+      const target = findMathTarget(e.target);
+      if (!target) return; // Not ours
+      e.preventDefault();
+      e.stopPropagation();
+      const x = e.clientX;
+      const y = e.clientY;
+      openCopyMenu(x, y, target);
+    }, true);
+
+    // Keyboard access to custom menu (Shift+F10 or ContextMenu key)
+    document.addEventListener('keydown', (e) => {
+      const isMenuKey = (e.key === 'ContextMenu') || (e.shiftKey && (e.key === 'F10'));
+      if (!isMenuKey) return;
+      const active = document.activeElement;
+      if (!active) return;
+      // Prefer wrapper, but allow math image fallback
+      let target = (active.closest && active.closest('.tex-math-inline, .tex-math-display')) || null;
+      if (!target && active.tagName === 'IMG') {
+        const alt = active.alt || '';
+        if (/(\$\$[^$]+\$\$|\$[^$]+\$|\\\([^)*]+\\\)|\\\[[^\]]+\\\])/.test(alt) || active.getAttribute('data-original-source')) {
+          target = active;
+        }
+      }
+      if (!target) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = target.getBoundingClientRect();
+      const x = Math.round(rect.left + Math.min(16, rect.width / 2));
+      const y = Math.round(rect.top + Math.min(24, rect.height / 2));
+      openCopyMenu(x, y, target);
+    }, true);
   }
 
   // Find compose area associated with a specific button
@@ -3999,6 +4379,10 @@
       if (changes.enableNaiveTeX) {
         TeXForGmail.naiveTexMode = changes.enableNaiveTeX.newValue;
         TeXForGmail.log(`Naive TeX mode ${changes.enableNaiveTeX.newValue ? 'enabled' : 'disabled'}`);
+      }
+      // If Copy LaTeX was toggled off while visible, hide overlay immediately (QA Story 4.5)
+      if (changes.showCopyLatex && changes.showCopyLatex.newValue === false) {
+        try { hideCopyButton(); } catch (_) {}
       }
       
       TeXForGmail.log('Settings updated from options page:', changes);

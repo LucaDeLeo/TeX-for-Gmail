@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TeX for Gmail - Story 4.5 Tests (Copy LaTeX)</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 20px; background: #f5f5f5; }
+    h1 { color: #1a73e8; border-bottom: 2px solid #e8f0fe; padding-bottom: 8px; }
+    h2 { color: #202124; margin-top: 28px; }
+    .section { background: white; border-radius: 8px; padding: 18px; margin: 16px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(280px,1fr)); gap: 14px; }
+    .status { padding: 8px 12px; border-radius: 4px; font-family: monospace; font-size: 13px; }
+    .success { background: #e6f4ea; color: #1e8e3e; border: 1px solid #ceead6; }
+    .error { background: #fce8e6; color: #d33b27; border: 1px solid #f5c6c0; }
+    .info { background: #e8f0fe; color: #1967d2; border: 1px solid #aecbfa; }
+    input, textarea { width: 100%; padding: 8px; border: 1px solid #dadce0; border-radius: 4px; font-family: monospace; }
+    textarea { min-height: 100px; }
+    button { background: #1a73e8; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; }
+    button:hover { background: #1557b0; }
+    .compose { background: white; border: 1px solid #dadce0; border-radius: 8px; padding: 12px; }
+    .M9 { min-height: 120px; padding: 8px; background: #fafafa; }
+    .log { max-height: 160px; overflow: auto; background: #0000000a; padding: 8px; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  </style>
+</head>
+<body>
+  <h1>🧪 Story 4.5 Tests — Copy LaTeX</h1>
+
+  <div class="section">
+    <h2>📋 Test Overview</h2>
+    <ul>
+      <li>Copy LaTeX available via hover button and right-click menu</li>
+      <li>Exact source copied with delimiters</li>
+      <li>Keyboard accessible; announces success/error</li>
+      <li>Works for Rich Math (images) and Simple Math (HTML)</li>
+      <li>Option toggle: Show ‘Copy LaTeX’ on equations</li>
+    </ul>
+  </div>
+
+  <div class="section compose">
+    <h2>✍️ Compose Area</h2>
+    <div class="M9" contenteditable="true">
+      <p>Inline: $E = mc^2$, $x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}$</p>
+      <p>Display: $$\int_0^{\infty} e^{-x^2} dx = \frac{\sqrt{\pi}}{2}$$</p>
+      <p>Simple Math sample: enable Simple Math mode and use: x^2 + y^2 = z^2</p>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>🧪 Actions</h2>
+    <div class="grid">
+      <div>
+        <button onclick="toggleCopySetting()">Toggle ‘Show Copy LaTeX’</button>
+        <div id="copySettingStatus" class="status info" style="margin-top:8px;">Unknown</div>
+      </div>
+      <div>
+        <label>Paste area (Ctrl/Cmd+V):</label>
+        <textarea id="pasteTarget" placeholder="Paste here to verify copied LaTeX"></textarea>
+      </div>
+      <div>
+        <button onclick="disableClipboardApi()">Disable Clipboard API (simulate fallback)</button>
+        <button style="margin-left:6px;" onclick="enableClipboardMock()">Enable Mock Clipboard API</button>
+        <div id="clipboardStatus" class="status info" style="margin-top:8px;">Clipboard: native (assumed)</div>
+      </div>
+      <div>
+        <button onclick="generateManyEquations(120)">Generate 120 equations in Compose</button>
+        <div id="bulkStatus" class="status info" style="margin-top:8px;">No bulk content inserted</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>📜 Log</h2>
+    <div class="log" id="testLog"></div>
+  </div>
+
+  <!-- Minimal chrome.storage mock so settings can be tested in harness (no extension context) -->
+  <script>
+    (function(){
+      if (!window.chrome) window.chrome = {};
+      const listeners = [];
+      const storeSync = {};
+      const storeLocal = {};
+      function buildGet(keys, backing) {
+        return async function(arg) {
+          // arg can be array of keys, object with defaults, or null
+          if (Array.isArray(arg)) {
+            const out = {};
+            arg.forEach(k => { if (k in backing) out[k] = backing[k]; });
+            return out;
+          } else if (arg && typeof arg === 'object') {
+            const out = {};
+            for (const k of Object.keys(arg)) {
+              out[k] = (k in backing) ? backing[k] : arg[k];
+            }
+            return out;
+          }
+          return { ...backing };
+        };
+      }
+      function buildSet(backing, areaName) {
+        return async function(obj) {
+          const changes = {};
+          for (const k of Object.keys(obj)) {
+            changes[k] = { oldValue: backing[k], newValue: obj[k] };
+            backing[k] = obj[k];
+          }
+          // Notify listeners similar to Chrome API
+          listeners.forEach(fn => {
+            try { fn(changes, areaName); } catch (_) {}
+          });
+        };
+      }
+      function buildRemove(backing, areaName) {
+        return async function(keys) {
+          const arr = Array.isArray(keys) ? keys : [keys];
+          const changes = {};
+          arr.forEach(k => {
+            if (k in backing) {
+              changes[k] = { oldValue: backing[k], newValue: undefined };
+              delete backing[k];
+            }
+          });
+          listeners.forEach(fn => { try { fn(changes, areaName); } catch(_){} });
+        };
+      }
+      window.chrome.storage = window.chrome.storage || {};
+      window.chrome.storage.onChanged = { addListener(fn){ if (typeof fn === 'function') listeners.push(fn); } };
+      window.chrome.storage.sync = {
+        get: buildGet(storeSync, storeSync),
+        set: buildSet(storeSync, 'sync'),
+        remove: buildRemove(storeSync, 'sync')
+      };
+      window.chrome.storage.local = {
+        get: buildGet(storeLocal, storeLocal),
+        set: buildSet(storeLocal, 'local'),
+        remove: buildRemove(storeLocal, 'local')
+      };
+      // Minimal runtime stub
+      if (!window.chrome.runtime) window.chrome.runtime = { onMessage: { addListener(){ /* noop */ } } };
+    })();
+  </script>
+
+  <!-- Load the extension (content script) from src for standalone harness -->
+  <script src="../src/content.js"></script>
+  <script>
+    const logDiv = document.getElementById('testLog');
+    function log(msg) {
+      const el = document.createElement('div');
+      el.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      logDiv.appendChild(el);
+      logDiv.scrollTop = logDiv.scrollHeight;
+    }
+
+    async function getSettings() {
+      try {
+        return await TeXForGmail.getSettings();
+      } catch (e) {
+        log('TeXForGmail not detected; some tests may be advisory only');
+        return {};
+      }
+    }
+
+    async function toggleCopySetting() {
+      try {
+        const s = await getSettings();
+        const next = !s.showCopyLatex;
+        await chrome.storage.sync.set({ showCopyLatex: next });
+        document.getElementById('copySettingStatus').className = 'status success';
+        document.getElementById('copySettingStatus').textContent = `showCopyLatex set to ${next}`;
+        log(`Option toggled: showCopyLatex=${next}`);
+      } catch (e) {
+        document.getElementById('copySettingStatus').className = 'status error';
+        document.getElementById('copySettingStatus').textContent = `Failed to set: ${e.message}`;
+        log(`Failed to set option: ${e.message}`);
+      }
+    }
+
+    window.addEventListener('load', async () => {
+      const s = await getSettings();
+      const v = s.showCopyLatex;
+      document.getElementById('copySettingStatus').className = 'status info';
+      document.getElementById('copySettingStatus').textContent = `showCopyLatex = ${v}`;
+      // Kick off initial render for the compose area so tests have content to interact with
+      try {
+        const area = document.querySelector('.M9[contenteditable="true"]');
+        if (typeof window.detectAndRenderLatex === 'function') {
+          window.detectAndRenderLatex(area);
+          log('Initial LaTeX render invoked for compose area.');
+        } else {
+          log('detectAndRenderLatex not available; ensure content.js loaded.');
+        }
+      } catch (e) {
+        log('Initial render failed: ' + e.message);
+      }
+      log('Ready. Hover over equations to use Copy action; right‑click should show custom Copy menu.');
+    });
+
+    // --- QA Utilities: Clipboard API simulation and bulk content generation ---
+    let __nativeClipboard = null;
+    function disableClipboardApi() {
+      try {
+        if (__nativeClipboard === null) {
+          __nativeClipboard = navigator.clipboard;
+        }
+        const desc = Object.getOwnPropertyDescriptor(Navigator.prototype, 'clipboard')
+          || Object.getOwnPropertyDescriptor(Object.getPrototypeOf(navigator), 'clipboard');
+        if (desc && desc.configurable) {
+          Object.defineProperty(Object.getPrototypeOf(navigator), 'clipboard', { value: undefined, configurable: true });
+        } else {
+          // Fallback attempt: assign undefined if writable
+          try { navigator.clipboard = undefined; } catch (_) {}
+        }
+        document.getElementById('clipboardStatus').className = 'status error';
+        document.getElementById('clipboardStatus').textContent = 'Clipboard: disabled (fallback path active)';
+        log('Clipboard API disabled to exercise fallback path.');
+      } catch (e) {
+        document.getElementById('clipboardStatus').className = 'status error';
+        document.getElementById('clipboardStatus').textContent = `Clipboard disable failed: ${e.message}`;
+        log('Failed to disable Clipboard API: ' + e.message);
+      }
+    }
+
+    function enableClipboardMock() {
+      try {
+        const mock = {
+          async writeText(text) {
+            window.__mockClipboard = text;
+            log(`Mock clipboard.writeText called (${Math.min(text.length, 80)} chars shown): ` + text.slice(0, 80));
+          }
+        };
+        const proto = Object.getPrototypeOf(navigator);
+        const desc = Object.getOwnPropertyDescriptor(proto, 'clipboard');
+        if (!desc || desc.configurable) {
+          Object.defineProperty(proto, 'clipboard', { value: mock, configurable: true });
+        } else {
+          try { navigator.clipboard = mock; } catch (_) {}
+        }
+        document.getElementById('clipboardStatus').className = 'status success';
+        document.getElementById('clipboardStatus').textContent = 'Clipboard: mocked (writeText logs to console)';
+        log('Clipboard API mocked. Fallback path should not be used.');
+      } catch (e) {
+        document.getElementById('clipboardStatus').className = 'status error';
+        document.getElementById('clipboardStatus').textContent = `Clipboard mock failed: ${e.message}`;
+        log('Failed to mock Clipboard API: ' + e.message);
+      }
+    }
+
+    function generateManyEquations(n = 120) {
+      const target = document.querySelector('.M9[contenteditable="true"]');
+      if (!target) {
+        document.getElementById('bulkStatus').className = 'status error';
+        document.getElementById('bulkStatus').textContent = 'Compose area not found';
+        log('Compose area (.M9) not found.');
+        return;
+      }
+      const inline = '$E=mc^2$';
+      const display = '$$\\int_0^{\\infty} e^{-x^2} dx = \\tfrac{\\sqrt{\\pi}}{2}$$';
+      const parts = [];
+      for (let i = 0; i < n; i++) {
+        parts.push(`<p>${inline} — sample ${i+1}</p>`);
+        if (i % 3 === 0) parts.push(`<p>${display}</p>`);
+      }
+      target.innerHTML = parts.join('\n');
+      document.getElementById('bulkStatus').className = 'status info';
+      document.getElementById('bulkStatus').textContent = `Inserted ${n} equations (approx.)`;
+      log(`Inserted ~${n} equations to assess responsiveness and layout stability.`);
+    }
+  </script>
+</body>
+</html>
