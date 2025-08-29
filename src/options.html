@@ -585,6 +585,16 @@
                             <span class="checkbox-label">Enable keyboard shortcuts</span>
                         </label>
                     </div>
+
+                    <div class="form-group">
+                        <label class="checkbox-group">
+                            <input type="checkbox" id="showCopyLatex" name="showCopyLatex" checked>
+                            <span class="checkbox-label">Show “Copy LaTeX” on equations</span>
+                        </label>
+                        <div class="radio-description" style="margin-left: 30px; margin-top: 4px;">
+                            Adds a small hover/focus control and context menu item to copy the exact LaTeX source (with delimiters).
+                        </div>
+                    </div>
                 </section>
 
                 <!-- Advanced Features Section -->
@@ -608,6 +618,16 @@
                         </label>
                         <div class="radio-description" style="margin-left: 30px; margin-top: 4px;">
                             Renders LaTeX as HTML/CSS instead of images (works offline)
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="checkbox-group">
+                            <input type="checkbox" id="enableAbbreviations" name="enableAbbreviations">
+                            <span class="checkbox-label">Enable LaTeX Abbreviations</span>
+                        </label>
+                        <div class="radio-description" style="margin-left: 30px; margin-top: 4px;">
+                            Enable shortcuts like \bb{R} for \mathbb{R} (default: off to prevent conflicts)
                         </div>
                     </div>
                 </section>

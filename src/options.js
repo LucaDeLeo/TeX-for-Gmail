@@ -19,11 +19,13 @@ const DEFAULT_SETTINGS = {
     // UI Controls
     showComposeButton: true,
     showReadButton: true,
+    showCopyLatex: true,
     
     // Features
     enableKeyboardShortcuts: true,
     enableNaiveTeX: false,
-    enableSimpleMath: false,
+    enableSimpleMath: true,
+    enableAbbreviations: false,
     
     // Advanced
     maxApiCallsPerMinute: 60,
@@ -81,6 +83,72 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 // Debounce timer for save operations
 let saveDebounceTimer = null;
 
+// ---- Safe Chrome API helpers + storage shim ----
+function chromeStorageAvailable() {
+    return (typeof chrome !== 'undefined') && chrome.storage && (chrome.storage.sync || chrome.storage.local);
+}
+function safeChromeSync() {
+    return (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync) ? chrome.storage.sync : null;
+}
+function safeChromeLocal() {
+    return (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) ? chrome.storage.local : null;
+}
+const SHIM_STORAGE_KEY = 'tfg_settings';
+function shimReadAll() {
+    try {
+        const raw = localStorage.getItem(SHIM_STORAGE_KEY);
+        if (!raw) return {};
+        const parsed = JSON.parse(raw);
+        return (parsed && typeof parsed === 'object') ? parsed : {};
+    } catch (_) { return {}; }
+}
+function shimWriteAll(obj) {
+    try {
+        const all = shimReadAll();
+        const merged = { ...all, ...obj };
+        localStorage.setItem(SHIM_STORAGE_KEY, JSON.stringify(merged));
+    } catch (_) { /* no-op */ }
+}
+async function shimSet(obj) { shimWriteAll(obj); return { storage: 'shim', success: true, fallback: true }; }
+async function shimGet(keys) {
+    const all = shimReadAll();
+    if (keys == null) return all;
+    if (Array.isArray(keys)) { const out = {}; keys.forEach(k => { if (k in all) out[k] = all[k]; }); return out; }
+    if (typeof keys === 'string') return { [keys]: all[keys] };
+    if (typeof keys === 'object') return { ...keys, ...all };
+    return all;
+}
+async function storageGet(keys) {
+    const syncArea = safeChromeSync();
+    const localArea = safeChromeLocal();
+    if (syncArea && typeof syncArea.get === 'function') {
+        try {
+            const syncData = await syncArea.get(keys);
+            if (syncData && Object.keys(syncData).length > 0) return syncData;
+        } catch (e) { /* fall through */ }
+    }
+    if (localArea && typeof localArea.get === 'function') {
+        try {
+            const localData = await localArea.get(keys);
+            if (localData && Object.keys(localData).length > 0) return localData;
+        } catch (e) { /* fall through */ }
+    }
+    return shimGet(keys);
+}
+async function storageSet(obj) {
+    const syncArea = safeChromeSync();
+    const localArea = safeChromeLocal();
+    if (syncArea && typeof syncArea.set === 'function') {
+        try { await syncArea.set(obj); return { storage: 'sync', success: true, fallback: false }; }
+        catch (e) { /* quota/other error - fall through */ }
+    }
+    if (localArea && typeof localArea.set === 'function') {
+        try { await localArea.set(obj); return { storage: 'local', success: true, fallback: true }; }
+        catch (e) { /* fall through */ }
+    }
+    return shimSet(obj);
+}
+
 // Initialize the options page
 document.addEventListener('DOMContentLoaded', () => {
     initializeOptions();
@@ -131,14 +199,14 @@ function setVersionDisplay() {
 async function migrateSettings() {
     try {
         // Check if migration is needed
-        const storageData = await chrome.storage.sync.get('migrated');
+        const storageData = await storageGet('migrated');
         if (storageData.migrated) {
             return; // Already migrated
         }
         
         // Check for old sessionStorage data (this would be in content script)
         // For now, we'll just mark as migrated
-        await chrome.storage.sync.set({ migrated: true });
+        await storageSet({ migrated: true });
         
     } catch (error) {
         console.error('Migration failed:', error);
@@ -154,13 +222,8 @@ async function loadSettings() {
     }
     
     try {
-        // Try sync storage first
-        let settings = await chrome.storage.sync.get(DEFAULT_SETTINGS);
-        
-        // If empty, try local storage
-        if (!settings || Object.keys(settings).length === 0) {
-            settings = await chrome.storage.local.get(DEFAULT_SETTINGS);
-        }
+        // Try Chrome storage with safe guards (sync → local → shim)
+        let settings = await storageGet(DEFAULT_SETTINGS);
         
         // Merge with defaults to ensure all keys exist
         settings = { ...DEFAULT_SETTINGS, ...settings };
@@ -186,13 +249,10 @@ async function saveSettings(settings) {
             throw new Error(validation.errors.join(', '));
         }
         
-        // Try to save to sync storage
-        try {
-            await chrome.storage.sync.set(settings);
-        } catch (syncError) {
-            // If sync storage fails (quota exceeded), use local storage
-            console.warn('Sync storage failed, using local storage:', syncError);
-            await chrome.storage.local.set(settings);
+        // Save with safe guards (sync → local → shim)
+        const result = await storageSet(settings);
+        if (result.storage !== 'sync') {
+            // Inform user that syncing may be limited
             showWarning(ERROR_MESSAGES.SYNC_FAILED);
         }
         
@@ -302,11 +362,14 @@ function populateForm(settings) {
     // UI controls
     document.getElementById('showComposeButton').checked = settings.showComposeButton;
     document.getElementById('showReadButton').checked = settings.showReadButton;
+    const copyToggle = document.getElementById('showCopyLatex');
+    if (copyToggle) copyToggle.checked = !!settings.showCopyLatex;
     document.getElementById('enableKeyboardShortcuts').checked = settings.enableKeyboardShortcuts;
     
     // Advanced features
     document.getElementById('enableNaiveTeX').checked = settings.enableNaiveTeX;
     document.getElementById('enableSimpleMath').checked = settings.enableSimpleMath;
+    document.getElementById('enableAbbreviations').checked = settings.enableAbbreviations || false;
 }
 
 // Get form values as settings object
@@ -320,9 +383,11 @@ function getFormValues() {
         simpleMathFontIncoming: document.getElementById('simpleMathFontIncoming').value.trim(),
         showComposeButton: document.getElementById('showComposeButton').checked,
         showReadButton: document.getElementById('showReadButton').checked,
+        showCopyLatex: (document.getElementById('showCopyLatex')?.checked) ?? true,
         enableKeyboardShortcuts: document.getElementById('enableKeyboardShortcuts').checked,
         enableNaiveTeX: document.getElementById('enableNaiveTeX').checked,
-        enableSimpleMath: document.getElementById('enableSimpleMath').checked
+        enableSimpleMath: document.getElementById('enableSimpleMath').checked,
+        enableAbbreviations: document.getElementById('enableAbbreviations').checked
     };
     
     // Preserve other settings not in the form and override with form values
@@ -906,26 +971,28 @@ function setupAccessibility() {
 }
 
 // Listen for storage changes from other contexts
-chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName === 'sync' || areaName === 'local') {
-        // Update form if another tab changed settings
-        const newSettings = {};
-        for (const key in changes) {
-            newSettings[key] = changes[key].newValue;
+if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged && typeof chrome.storage.onChanged.addListener === 'function') {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+        if (areaName === 'sync' || areaName === 'local') {
+            // Update form if another tab changed settings
+            const newSettings = {};
+            for (const key in changes) {
+                newSettings[key] = changes[key].newValue;
+            }
+            
+            // Merge with current settings
+            const mergedSettings = { ...settingsCache, ...newSettings };
+            
+            // Update cache
+            settingsCache = mergedSettings;
+            cacheTimestamp = Date.now();
+            
+            // Update form
+            populateForm(mergedSettings);
+            updateAllPreviews(mergedSettings);
+            
+            // Show notification
+            showSuccess('Settings updated from another tab');
         }
-        
-        // Merge with current settings
-        const mergedSettings = { ...settingsCache, ...newSettings };
-        
-        // Update cache
-        settingsCache = mergedSettings;
-        cacheTimestamp = Date.now();
-        
-        // Update form
-        populateForm(mergedSettings);
-        updateAllPreviews(mergedSettings);
-        
-        // Show notification
-        showSuccess('Settings updated from another tab');
-    }
-});
+    });
+}

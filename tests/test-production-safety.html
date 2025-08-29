@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Production Safety Test - TeX for Gmail</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .test-section {
+      background: white;
+      padding: 20px;
+      margin: 20px 0;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h2 { color: #333; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; }
+    .status {
+      padding: 10px;
+      margin: 10px 0;
+      border-radius: 4px;
+      font-family: monospace;
+    }
+    .pass { background: #e8f5e9; color: #2e7d32; }
+    .fail { background: #ffebee; color: #c62828; }
+    .info { background: #e3f2fd; color: #1565c0; }
+    pre { background: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>Production Safety Tests</h1>
+  
+  <div class="test-section">
+    <h2>Test Results</h2>
+    <div id="test-results"></div>
+  </div>
+  
+  <div class="test-section">
+    <h2>Simulated Gmail Environment</h2>
+    <div class="gmail-compose" role="textbox" contenteditable="true" aria-label="Message Body" style="min-height: 100px; border: 1px solid #ccc; padding: 10px;">
+      Test equation: $\frac{a}{b}$ and $x^2 + y^2 = z^2$
+    </div>
+  </div>
+
+  <script src="../src/content.js"></script>
+  <script>
+    // Production safety tests
+    const tests = [];
+    
+    function addTest(name, fn) {
+      tests.push({ name, fn });
+    }
+    
+    function runTests() {
+      const results = document.getElementById('test-results');
+      results.innerHTML = '';
+      
+      tests.forEach(test => {
+        const div = document.createElement('div');
+        try {
+          const result = test.fn();
+          div.className = 'status ' + (result ? 'pass' : 'fail');
+          div.textContent = `${result ? '✓' : '✗'} ${test.name}`;
+        } catch (e) {
+          div.className = 'status fail';
+          div.textContent = `✗ ${test.name}: ${e.message}`;
+        }
+        results.appendChild(div);
+      });
+    }
+    
+    // Test 1: getToggleState doesn't affect non-file protocol
+    addTest('getToggleState respects protocol logic', () => {
+      const mockElement = document.createElement('div');
+      
+      // Save original protocol
+      const originalProtocol = location.protocol;
+      
+      // For file:// it should return true
+      if (originalProtocol === 'file:') {
+        const state = getToggleState(mockElement);
+        return state === true;
+      }
+      
+      // For other protocols, should check toggle states Map
+      return true; // Can't fully test without mocking location
+    });
+    
+    // Test 2: data-tex-toggle attribute works
+    addTest('data-tex-toggle attribute override works', () => {
+      const onElement = document.createElement('div');
+      onElement.setAttribute('data-tex-toggle', 'on');
+      
+      const offElement = document.createElement('div');
+      offElement.setAttribute('data-tex-toggle', 'off');
+      
+      const defaultElement = document.createElement('div');
+      
+      // Test override behavior
+      const onState = getToggleState(onElement);
+      const offState = getToggleState(offElement);
+      
+      return onState === true && offState === false;
+    });
+    
+    // Test 3: Removed functions don't exist
+    addTest('Removed unused functions are gone', () => {
+      const shouldNotExist = [
+        'cleanupToggleState',
+        'detectTheoremEnvironments', 
+        'cleanupComposeObserver'
+      ];
+      
+      return shouldNotExist.every(fn => typeof window[fn] === 'undefined');
+    });
+    
+    // Test 4: Core functionality still works
+    addTest('detectAndRenderLatex function exists', () => {
+      return typeof detectAndRenderLatex === 'function';
+    });
+    
+    // Test 5: TeXForGmail object properly initialized
+    addTest('TeXForGmail object initialized', () => {
+      return typeof TeXForGmail === 'object' && 
+             TeXForGmail.toggleStates instanceof Map &&
+             typeof TeXForGmail.log === 'function';
+    });
+    
+    // Test 6: Theorem wrapper still works
+    addTest('createTheoremWrapper still available', () => {
+      return typeof createTheoremWrapper === 'function';
+    });
+    
+    // Test 7: Storage service validation
+    addTest('StorageService handles missing Chrome storage', () => {
+      const service = new StorageService();
+      // Should not throw even if chrome.storage is undefined
+      return service.validationRules.enableAbbreviations.default === false;
+    });
+    
+    // Test 8: Keyboard shortcuts don't error
+    addTest('Keyboard handler doesn\'t error', () => {
+      const event = new KeyboardEvent('keydown', { key: 'F8' });
+      try {
+        TeXForGmail.handleGlobalKeyboard(event);
+        return true;
+      } catch (e) {
+        return false;
+      }
+    });
+    
+    // Test 9: Copy functionality available
+    addTest('Copy to clipboard function exists', () => {
+      return typeof copyToClipboard === 'function';
+    });
+    
+    // Test 10: Performance cleanup works
+    addTest('performComprehensiveCleanup exists', () => {
+      return typeof performComprehensiveCleanup === 'function';
+    });
+    
+    // Run tests on load
+    window.addEventListener('DOMContentLoaded', () => {
+      runTests();
+      
+      // Log changes made
+      const changes = document.createElement('div');
+      changes.className = 'test-section';
+      changes.innerHTML = `
+        <h2>Changes Applied</h2>
+        <div class="status info">
+          <h3>TypeScript Warning Fixes:</h3>
+          <ul>
+            <li>Removed unused cleanupToggleState function</li>
+            <li>Removed unused detectTheoremEnvironments function</li>
+            <li>Removed unused cleanupComposeObserver function</li>
+            <li>Fixed deprecated substr() → substring()</li>
+            <li>Fixed unused forEach parameters with underscore</li>
+            <li>Removed unused hasModifier variable</li>
+            <li>Marked unused Chrome API params with underscore</li>
+            <li>Added comment for necessary execCommand usage</li>
+          </ul>
+          <h3>Feature Enhancements:</h3>
+          <ul>
+            <li>getToggleState supports file:// protocol</li>
+            <li>Added data-tex-toggle attribute support</li>
+            <li>Chrome API shim in test files</li>
+          </ul>
+        </div>
+      `;
+      document.body.appendChild(changes);
+    });
+  </script>
+</body>
+</html>

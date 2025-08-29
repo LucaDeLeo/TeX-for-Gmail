@@ -140,5 +140,15 @@ is displayed prominently.
             observer.observe(area, { childList: true, subtree: true });
         });
     </script>
+    <script>
+      // Kick off LaTeX rendering for static compose areas
+      window.addEventListener('DOMContentLoaded', () => {
+        document.querySelectorAll('.compose-area').forEach(area => {
+          if (typeof detectAndRenderLatex === 'function') detectAndRenderLatex(area);
+        });
+      });
+    </script>
+  <!-- Load the extension content script for local testing -->
+  <script src="../src/content.js"></script>
 </body>
 </html>

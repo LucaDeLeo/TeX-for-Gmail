@@ -1,0 +1,67 @@
+schema: 1
+story: '4.5'
+story_title: 'Copy LaTeX Source & Context Menu'
+gate: CONCERNS
+status_reason: 'Core functionality works but context menu copy fails when wrapper detection fails'
+reviewer: 'Quinn (Test Architect)'
+updated: '2025-08-28T11:05:00Z'
+
+top_issues:
+  - issue: 'Context menu Copy LaTeX fails with "no LaTeX source found" error'
+    severity: medium
+    refs: ['src/content.js:2409-2426']
+    suggested_owner: dev
+    details: 'getOriginalLatex() fails when wrapper classes are missing from rendered equations'
+  - issue: 'Test harness cannot fully test settings toggle'
+    severity: low
+    refs: ['tests/test-story-4.5.html:99-109']
+    suggested_owner: dev
+    details: 'chrome.storage.sync undefined in standalone test environment'
+
+quality_score: 80  # 100 - (0*FAILs) - (2*CONCERNS)
+expires: '2025-01-11T11:05:00Z'
+
+evidence:
+  tests_reviewed: 8  # Manual test scenarios in harness
+  risks_identified: 2
+  trace:
+    ac_covered: [1, 3, 4, 5]  # AC2 partially covered
+    ac_gaps: [2]  # Keyboard accessibility partially working
+
+nfr_validation:
+  security:
+    status: PASS
+    notes: 'No security concerns. Clipboard operations properly sandboxed.'
+  performance:
+    status: PASS
+    notes: 'Event delegation and single reusable elements ensure good performance with 120+ equations'
+  reliability:
+    status: CONCERNS
+    notes: 'Context menu failure reduces reliability. Fallback clipboard path works.'
+  maintainability:
+    status: PASS
+    notes: 'Well-structured code with clear separation of concerns'
+
+test_execution:
+  method: 'Automated Playwright with Vision'
+  date: '2025-08-28'
+  findings:
+    - 'Hover button successfully copies LaTeX with preserved delimiters'
+    - 'Context menu appears but copy operation fails'
+    - 'Successfully tested with 120 equations - no performance degradation'
+    - 'Keyboard focus partially working but inconsistent'
+
+recommendations:
+  immediate:
+    - action: 'Fix getOriginalLatex() to handle images without wrapper classes'
+      refs: ['src/content.js:2409-2426']
+    - action: 'Add fallback wrapper detection for context menu'
+      refs: ['src/content.js:2634-2637']
+  future:
+    - action: 'Mock chrome.storage API in test harness'
+      refs: ['tests/test-story-4.5.html']
+    - action: 'Improve keyboard navigation consistency'
+      refs: ['src/content.js:2533-2537']
+
+waiver:
+  active: false

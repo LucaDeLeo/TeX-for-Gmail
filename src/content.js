@@ -1,4 +1,4 @@
-// TeX for Gmail - Content Script
+// TeX for Gmail - Content Script (fully patched)
 // Encapsulated in IIFE to avoid global namespace pollution
 (function() {
   'use strict';
@@ -11,32 +11,35 @@
       '.editable[contenteditable="true"]',
       'div[aria-label*="Message Body"]'
     ],
-    observerConfig: {
-      childList: true,
-      subtree: true
-    },
-    debounceDelay: 100, // For observer
-    renderDebounceDelay: 500, // For LaTeX rendering
+    observerConfig: { childList: true, subtree: true },
+    debounceDelay: 100,            // For DOM observer; updated from settings
+    renderDebounceDelay: 500,      // For LaTeX rendering; updated from settings if provided
     toastDuration: 3000,
     dpi: {
       inline: 110,  // Inline equations: better text sizing
       display: 300  // Display equations: higher fidelity
     },
-    size: {
-      inline: '\\normalsize',
-      display: '\\large'
-    },
-    maxApiCallsPerMinute: 60, // Rate limiting
-    maxLatexLength: 1000 // Maximum LaTeX string length
+    size: { inline: '\\normalsize', display: '\\large' },
+    maxApiCallsPerMinute: 60,      // Rate limiting; updated from settings
+    maxLatexLength: 1000           // Maximum LaTeX string length
   };
+
+  // Safe Chrome API helpers to avoid crashes in non-extension contexts
+  function chromeStorageAvailable() {
+    return (typeof chrome !== 'undefined') && chrome.storage && (chrome.storage.sync || chrome.storage.local);
+  }
+  function safeChromeSync() {
+    return (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync) ? chrome.storage.sync : null;
+  }
+  function safeChromeLocal() {
+    return (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) ? chrome.storage.local : null;
+  }
 
   // Storage Service with quota handling and fallback
   class StorageService {
     constructor() {
       this.syncQuotaExceeded = false;
       this.performanceMetrics = new Map();
-      
-      // Validation rules with defaults
       this.validationRules = {
         sendBehavior: { type: 'enum', values: ['always', 'never', 'ask'], default: 'ask' },
         renderServer: { type: 'enum', values: ['codecogs', 'wordpress'], default: 'codecogs' },
@@ -46,21 +49,22 @@
         simpleMathFontIncoming: { type: 'font', maxLength: 100, default: 'serif' },
         showComposeButton: { type: 'boolean', default: true },
         showReadButton: { type: 'boolean', default: true },
+        showCopyLatex: { type: 'boolean', default: true },
         enableKeyboardShortcuts: { type: 'boolean', default: true },
         rememberSendChoice: { type: 'boolean', default: false },
         lastSendChoice: { type: 'enum', values: ['render', 'send_without', null], default: null },
         serverFallback: { type: 'boolean', default: true },
         enableNaiveTeX: { type: 'boolean', default: false },
-        enableSimpleMath: { type: 'boolean', default: false },
+        enableSimpleMath: { type: 'boolean', default: true },
+        autoRenderOnCompose: { type: 'boolean', default: true },
         maxApiCallsPerMinute: { type: 'number', min: 1, max: 1000, default: 60 },
         debounceDelay: { type: 'number', min: 100, max: 5000, default: 500 },
-        debugMode: { type: 'boolean', default: false }
+        debugMode: { type: 'boolean', default: false },
+        enableAbbreviations: { type: 'boolean', default: false }
       };
-      
       // Rate limiting for storage operations
       this.lastStorageOperation = 0;
       this.minOperationInterval = 100; // Minimum 100ms between operations
-      
       // Allowed font names for validation
       this.allowedFonts = [
         'serif', 'sans-serif', 'monospace', 'cursive', 'fantasy',
@@ -69,289 +73,249 @@
         'Verdana', 'Trebuchet MS', 'Gill Sans', 'Noto Sans', 'Roboto',
         'Ubuntu', 'Courier New', 'Courier', 'Consolas', 'Monaco', 'Menlo'
       ];
+      // Shim namespace for environments without Chrome APIs
+      this.shimStorageKey = 'tfg_settings';
     }
-    
     // Sanitize font name to prevent CSS injection
     sanitizeFontName(font) {
       if (!font) return 'serif';
-      
-      // Remove any potential CSS injection vectors
       let sanitized = font.toString().replace(/[^a-zA-Z0-9\s\-]/g, '');
-      
-      // Check if it's in the allowed list (case-insensitive)
       const fontLower = sanitized.toLowerCase();
-      const isAllowed = this.allowedFonts.some(allowed => 
-        allowed.toLowerCase() === fontLower
-      );
-      
+      const isAllowed = this.allowedFonts.some(allowed => allowed.toLowerCase() === fontLower);
       if (!isAllowed) {
         console.warn(`Invalid font name "${font}", using default "serif"`);
         return 'serif';
       }
-      
       return sanitized;
     }
-    
     // Validate a single value based on rules
     validateValue(key, value, rule) {
       if (!rule) return { valid: true, value };
-      
-      // Handle null/undefined values
       if (value === null || value === undefined) {
-        // Use default value if available
-        if (rule.default !== undefined) {
-          return { valid: true, value: rule.default };
-        }
-        // For required fields, return error
-        if (rule.required) {
-          return { valid: false, error: `${key} is required`, value: rule.default };
-        }
-        // Otherwise, use default or null
+        if (rule.default !== undefined) return { valid: true, value: rule.default };
+        if (rule.required) return { valid: false, error: `${key} is required`, value: rule.default };
         return { valid: true, value: rule.default || null };
       }
-      
       switch (rule.type) {
         case 'boolean':
-          // Handle string boolean values
-          if (typeof value === 'string') {
-            value = value.toLowerCase() === 'true' || value === '1' || value === 'yes';
-          }
-          return { 
-            valid: true,
-            value: Boolean(value)
-          };
-          
-        case 'number':
+          if (typeof value === 'string') value = value.toLowerCase() === 'true' || value === '1' || value === 'yes';
+          return { valid: true, value: Boolean(value) };
+        case 'number': {
           const num = Number(value);
           if (isNaN(num) || !isFinite(num)) {
             console.warn(`${key}: Invalid number "${value}", using default ${rule.default}`);
-            return { 
-              valid: true, 
-              value: rule.default || rule.min || 0
-            };
+            return { valid: true, value: rule.default ?? rule.min ?? 0 };
           }
-          // Clamp to min/max automatically
-          let clampedValue = num;
-          if (rule.min !== undefined && num < rule.min) {
-            console.warn(`${key}: Value ${num} clamped to minimum ${rule.min}`);
-            clampedValue = rule.min;
-          }
-          if (rule.max !== undefined && num > rule.max) {
-            console.warn(`${key}: Value ${num} clamped to maximum ${rule.max}`);
-            clampedValue = rule.max;
-          }
-          // Round for integer values like DPI
-          return { valid: true, value: Math.round(clampedValue) };
-          
-        case 'enum':
-          // Handle case-insensitive matching for strings
-          if (value === null && rule.values.includes(null)) {
-            return { valid: true, value: null };
-          }
-          
-          const normalizedValue = typeof value === 'string' ? value.toLowerCase() : value;
-          const validValue = rule.values.find(v => 
-            (typeof v === 'string' ? v.toLowerCase() : v) === normalizedValue
-          );
-          
+          let clamped = num;
+          if (rule.min !== undefined && num < rule.min) { console.warn(`${key}: ${num} clamped to min ${rule.min}`); clamped = rule.min; }
+          if (rule.max !== undefined && num > rule.max) { console.warn(`${key}: ${num} clamped to max ${rule.max}`); clamped = rule.max; }
+          return { valid: true, value: Math.round(clamped) };
+        }
+        case 'enum': {
+          if (value === null && rule.values.includes(null)) return { valid: true, value: null };
+          const norm = typeof value === 'string' ? value.toLowerCase() : value;
+          const validValue = rule.values.find(v => (typeof v === 'string' ? v.toLowerCase() : v) === norm);
           if (validValue === undefined) {
-            // Use default or first valid value
-            const defaultValue = rule.default !== undefined ? rule.default : rule.values[0];
-            console.warn(`${key}: Invalid value "${value}", using default "${defaultValue}"`);
-            return { 
-              valid: true, 
-              value: defaultValue
-            };
+            const def = rule.default !== undefined ? rule.default : rule.values[0];
+            console.warn(`${key}: Invalid value "${value}", using default "${def}"`);
+            return { valid: true, value: def };
           }
           return { valid: true, value: validValue };
-          
-        case 'font':
+        }
+        case 'font': {
           const sanitized = this.sanitizeFontName(value);
-          // Ensure it's not empty after sanitization
-          if (!sanitized || sanitized.length === 0) {
-            return { valid: true, value: rule.default || 'serif' };
-          }
-          if (rule.maxLength && sanitized.length > rule.maxLength) {
-            return { 
-              valid: true, 
-              value: sanitized.substring(0, rule.maxLength)
-            };
-          }
+          if (!sanitized || sanitized.length === 0) return { valid: true, value: rule.default || 'serif' };
+          if (rule.maxLength && sanitized.length > rule.maxLength) return { valid: true, value: sanitized.substring(0, rule.maxLength) };
           return { valid: true, value: sanitized };
-          
+        }
         default:
           console.warn(`Unknown validation type: ${rule.type}`);
           return { valid: true, value };
       }
     }
-    
     // Validate and sanitize all data before storage
     validateAndSanitize(data) {
       const validated = {};
       const errors = [];
-      
       for (const [key, value] of Object.entries(data)) {
         const rule = this.validationRules[key];
-        
         if (rule) {
           const result = this.validateValue(key, value, rule);
-          
           if (!result.valid) {
             errors.push(result.error || `Invalid value for ${key}`);
-            // Use corrected value if available, otherwise skip
-            if (result.value !== undefined) {
-              validated[key] = result.value;
-            }
+            if (result.value !== undefined) validated[key] = result.value;
           } else {
             validated[key] = result.value;
           }
         } else {
-          // Unknown key - log warning but allow it
           console.warn(`Unknown setting key: ${key}`);
           validated[key] = value;
         }
       }
-      
-      if (errors.length > 0) {
-        console.warn('Validation warnings:', errors);
-      }
-      
+      if (errors.length > 0) console.warn('Validation warnings:', errors);
       return { data: validated, errors };
     }
-
     // Measure and log performance of storage operations
     async measureOperation(operationName, operation) {
       const startTime = performance.now();
       const startMark = `storage-${operationName}-start-${Date.now()}`;
       const endMark = `storage-${operationName}-end-${Date.now()}`;
-      
       performance.mark(startMark);
-      
       try {
         const result = await operation();
-        const endTime = performance.now();
         performance.mark(endMark);
-        
-        const duration = endTime - startTime;
+        const duration = performance.now() - startTime;
         performance.measure(`storage-${operationName}`, startMark, endMark);
-        
-        // Store metrics for monitoring
-        if (!this.performanceMetrics.has(operationName)) {
-          this.performanceMetrics.set(operationName, []);
-        }
+        if (!this.performanceMetrics.has(operationName)) this.performanceMetrics.set(operationName, []);
         this.performanceMetrics.get(operationName).push(duration);
-        
-        // Log if operation exceeds 100ms threshold
-        if (duration > 100) {
-          console.warn(`Storage operation "${operationName}" took ${duration.toFixed(2)}ms (exceeds 100ms threshold)`);
-        }
-        
+        if (duration > 100) console.warn(`Storage operation "${operationName}" took ${duration.toFixed(2)}ms (>100ms)`);
         return result;
       } catch (error) {
         performance.mark(endMark);
         performance.measure(`storage-${operationName}-failed`, startMark, endMark);
         throw error;
+      } finally {
+        try {
+          performance.clearMarks(startMark);
+          performance.clearMarks(endMark);
+          performance.clearMeasures(`storage-${operationName}`);
+          performance.clearMeasures(`storage-${operationName}-failed`);
+        } catch (_) {}
       }
     }
-
     // Set data with validation and automatic fallback
     async set(data) {
-      // Rate limiting check
       const now = Date.now();
-      const timeSinceLastOp = now - this.lastStorageOperation;
-      if (timeSinceLastOp < this.minOperationInterval) {
-        const waitTime = this.minOperationInterval - timeSinceLastOp;
-        console.warn(`Rate limiting: waiting ${waitTime}ms before storage operation`);
-        await new Promise(resolve => setTimeout(resolve, waitTime));
+      const since = now - this.lastStorageOperation;
+      if (since < this.minOperationInterval) {
+        const wait = this.minOperationInterval - since;
+        console.warn(`Rate limiting: waiting ${wait}ms before storage operation`);
+        await new Promise(r => setTimeout(r, wait));
       }
       this.lastStorageOperation = Date.now();
-      
       return this.measureOperation('set', async () => {
-        // Validate and sanitize data before storage
-        const { data: validatedData, errors } = this.validateAndSanitize(data);
-        
-        if (errors.length > 0) {
-          console.warn('Data validation warnings during storage:', errors);
-        }
-        
-        // Ensure we're not storing excessive data
-        const dataSize = JSON.stringify(validatedData).length;
-        if (dataSize > 8192) { // Chrome sync storage has 8KB limit per item
-          console.warn(`Large data size (${dataSize} bytes), may exceed storage limits`);
-        }
-        
-        try {
-          if (!this.syncQuotaExceeded) {
-            await chrome.storage.sync.set(validatedData);
-            return { storage: 'sync', success: true, validated: true };
-          } else {
-            throw new Error('Sync quota exceeded, using local storage');
-          }
-        } catch (error) {
-          // Check if it's a quota error
-          if (error.message && (error.message.includes('QUOTA') || error.message.includes('quota'))) {
-            this.syncQuotaExceeded = true;
-            console.warn('Chrome sync storage quota exceeded, falling back to local storage');
-          }
-          
-          // Fallback to local storage
+        const { data: validated, errors } = this.validateAndSanitize(data);
+        if (errors.length > 0) console.warn('Data validation warnings during storage:', errors);
+        const size = JSON.stringify(validated).length;
+        if (size > 8192) console.warn(`Large data size (${size} bytes), may exceed chrome sync item limit`);
+
+        const syncArea = safeChromeSync();
+        const localArea = safeChromeLocal();
+
+        // Prefer Chrome sync when available and not quota-exceeded
+        if (syncArea && !this.syncQuotaExceeded && typeof syncArea.set === 'function') {
           try {
-            await chrome.storage.local.set(validatedData);
+            await syncArea.set(validated);
+            return { storage: 'sync', success: true, validated: true };
+          } catch (error) {
+            if (error && typeof error.message === 'string' && (error.message.includes('QUOTA') || error.message.includes('quota'))) {
+              this.syncQuotaExceeded = true;
+              console.warn('Chrome sync storage quota exceeded, falling back to local storage');
+            } else {
+              console.warn('Chrome sync storage failed, will try local/shim:', error);
+            }
+          }
+        }
+
+        // Fallback to Chrome local if available
+        if (localArea && typeof localArea.set === 'function') {
+          try {
+            await localArea.set(validated);
             return { storage: 'local', success: true, fallback: true, validated: true };
           } catch (localError) {
-            console.error('Failed to save to both sync and local storage:', localError);
-            throw localError;
+            console.warn('Chrome local storage failed, will try shim:', localError);
           }
         }
+
+        // Final fallback to in-page shim
+        await this.shimSet(validated);
+        return { storage: 'shim', success: true, fallback: true, validated: true };
       });
     }
-
     // Get data with automatic fallback
     async get(keys) {
       return this.measureOperation('get', async () => {
-        try {
-          // Try sync storage first
-          const syncData = await chrome.storage.sync.get(keys);
-          
-          // If we have data, return it
-          if (syncData && Object.keys(syncData).length > 0) {
-            return syncData;
+        const syncArea = safeChromeSync();
+        const localArea = safeChromeLocal();
+        // Try Chrome sync first
+        if (syncArea && typeof syncArea.get === 'function') {
+          try {
+            const syncData = await syncArea.get(keys);
+            if (syncData && Object.keys(syncData).length > 0) return syncData;
+          } catch (e) {
+            console.warn('Chrome sync get failed, will try local/shim:', e);
           }
-          
-          // Otherwise try local storage
-          const localData = await chrome.storage.local.get(keys);
-          return localData;
-        } catch (error) {
-          console.error('Failed to retrieve storage data:', error);
-          // Return default values if keys is an object with defaults
-          if (typeof keys === 'object' && !Array.isArray(keys)) {
-            return keys;
-          }
-          return {};
         }
+        // Then Chrome local
+        if (localArea && typeof localArea.get === 'function') {
+          try {
+            const localData = await localArea.get(keys);
+            if (localData && Object.keys(localData).length > 0) return localData;
+          } catch (e) {
+            console.warn('Chrome local get failed, will try shim:', e);
+          }
+        }
+        // Finally shim
+        return this.shimGet(keys);
       });
     }
-
     // Clear specific keys from both storages
     async remove(keys) {
       return this.measureOperation('remove', async () => {
-        const results = await Promise.allSettled([
-          chrome.storage.sync.remove(keys),
-          chrome.storage.local.remove(keys)
-        ]);
-        
-        return {
-          sync: results[0].status === 'fulfilled',
-          local: results[1].status === 'fulfilled'
-        };
+        const syncArea = safeChromeSync();
+        const localArea = safeChromeLocal();
+        const result = { sync: false, local: false };
+        if (syncArea && typeof syncArea.remove === 'function') {
+          try { await syncArea.remove(keys); result.sync = true; } catch (_) { /* no-op */ }
+        }
+        if (localArea && typeof localArea.remove === 'function') {
+          try { await localArea.remove(keys); result.local = true; } catch (_) { /* no-op */ }
+        }
+        if (result.sync || result.local) return result;
+        await this.shimRemove(keys);
+        return { sync: false, local: false, shim: true };
       });
     }
-
+    // ---- Shim helpers for non-extension environments ----
+    shimReadAll() {
+      try {
+        const raw = localStorage.getItem(this.shimStorageKey);
+        if (!raw) return {};
+        const parsed = JSON.parse(raw);
+        return (parsed && typeof parsed === 'object') ? parsed : {};
+      } catch (_) { return {}; }
+    }
+    shimWriteAll(obj) {
+      try {
+        const all = this.shimReadAll();
+        const merged = { ...all, ...obj };
+        localStorage.setItem(this.shimStorageKey, JSON.stringify(merged));
+      } catch (_) { /* no-op */ }
+    }
+    async shimSet(obj) { this.shimWriteAll(obj); return true; }
+    async shimGet(keys) {
+      const all = this.shimReadAll();
+      if (keys == null) return all;
+      if (Array.isArray(keys)) {
+        const out = {}; keys.forEach(k => { if (k in all) out[k] = all[k]; }); return out;
+      }
+      if (typeof keys === 'string') { return { [keys]: all[keys] }; }
+      if (typeof keys === 'object') { return { ...keys, ...all }; }
+      return all;
+    }
+    async shimRemove(keys) {
+      const all = this.shimReadAll();
+      if (Array.isArray(keys)) { keys.forEach(k => { delete all[k]; }); }
+      else if (typeof keys === 'string') { delete all[keys]; }
+      else if (typeof keys === 'object') { Object.keys(keys).forEach(k => { delete all[k]; }); }
+      try { localStorage.setItem(this.shimStorageKey, JSON.stringify(all)); } catch (_) { /* no-op */ }
+      return true;
+    }
     // Get performance report
     getPerformanceReport() {
       const report = {};
       for (const [operation, times] of this.performanceMetrics) {
-        const sorted = times.sort((a, b) => a - b);
+        const sorted = [...times].sort((a, b) => a - b);
         report[operation] = {
           count: times.length,
           min: Math.min(...times).toFixed(2),
@@ -365,19 +329,16 @@
     }
   }
 
-  // Create global storage service instance
+  // Global storage service instance
   const storageService = new StorageService();
 
   // Main namespace object for state management
   const TeXForGmail = {
     observer: null,
     composeButtons: new WeakMap(),
-    // Use Map (not WeakMap) so we can iterate and clean up entries
-    readButtons: new Map(), // Track buttons in read mode
+    readButtons: new Map(),
     processingStates: new WeakMap(),
-    composeObservers: new WeakMap(), // Track observers per compose area
-    
-    // Template shortcuts for LaTeX commands
+    composeObservers: new WeakMap(),
     TEX_TEMPLATES: {
       'F': { template: '\\frac{|}{}', name: 'Fraction' },
       'S': { template: '\\sqrt{|}', name: 'Square root' },
@@ -388,98 +349,69 @@
       'L': { template: '\\lim_{|}', name: 'Limit' },
       'V': { template: '\\vec{|}', name: 'Vector' }
     },
-    renderTimeouts: new WeakMap(), // Track render timeouts per compose area
-    toggleStates: new WeakMap(), // Track toggle state per compose area
-    originalContent: new WeakMap(), // Store original content before rendering
-    removalObservers: new WeakMap(), // Track removal observers for cleanup
-    sendProcessingStates: new WeakMap(), // Track send processing states
-    observerSetupFlags: new WeakMap(), // Prevent duplicate observer setup
-    apiCallTimes: [], // Track API call timestamps for rate limiting
-    debugMode: false, // Set to true for verbose logging
-    simpleMode: false, // Simple Math mode flag
-    naiveTexMode: false, // Naive TeX detection mode flag
-    serverPreference: 'codecogs', // Current server preference
-    serverSwitchMutex: false, // Mutex to prevent concurrent server switches
-    serverSwitchTimestamp: 0, // Track last switch time
-    settings: null, // Cached settings from chrome.storage
-    settingsLoadPromise: null, // Promise for settings loading
-    init() {
+    renderTimeouts: new WeakMap(),
+    toggleStates: new WeakMap(),       // boolean ON/OFF only
+    originalContent: new WeakMap(),    // original snapshot (fallback-only)
+    removalObservers: new WeakMap(),
+    sendProcessingStates: new WeakMap(),
+    observerSetupFlags: new WeakMap(),
+    apiCallTimes: [],
+    debugMode: false,
+    simpleMode: false,
+    naiveTexMode: false,
+    serverPreference: 'codecogs',
+    serverSwitchMutex: false,
+    serverSwitchTimestamp: 0,
+    settings: null,
+    settingsLoadPromise: null,
+
+    async init() {
       console.log('🚀 TeX for Gmail: Extension initializing...');
       this.log('Extension initialized');
-      
-      // Load settings from chrome.storage
-      this.loadSettings();
-      // Ensure live regions exist for announcements
+      // Load settings first and await them
+      await this.loadSettings();
       ensureLiveRegions();
-      
-      // Load server preference from sessionStorage (for backward compatibility)
+      // Back-compat server preference from sessionStorage
       try {
         const savedPreference = sessionStorage.getItem('tex-gmail-server-preference');
         if (savedPreference && ['codecogs', 'wordpress'].includes(savedPreference)) {
           this.serverPreference = savedPreference;
           this.log('Loaded server preference:', savedPreference);
-          // Migrate to chrome.storage
           if (this.settings) {
             this.settings.renderServer = savedPreference;
             storageService.set({ renderServer: savedPreference });
             sessionStorage.removeItem('tex-gmail-server-preference');
           }
         }
-      } catch (e) {
-        // Silently fail if sessionStorage is not available
+      } catch (_) {
         this.log('Could not load server preference from sessionStorage');
       }
-      
       this.setupObserver();
-      // Check for existing compose windows immediately
-      checkForComposeWindow();
-      
-      // Set up global keyboard event handler
+      checkForComposeWindow(); // immediate scan
       this.setupKeyboardHandler();
-      // Initialize Copy LaTeX UI interactions
       ensureCopyInteractions();
       ensureContextMenu();
     },
-    // Styles and helpers for non-destructive read-mode rendering
+
     ensureOverlayStyles() {
       if (document.getElementById('tex-read-overlay-styles')) return;
       const style = document.createElement('style');
       style.id = 'tex-read-overlay-styles';
       style.textContent = `
-        .tex-read-overlay { 
-          position: absolute; 
-          inset: 0; 
-          width: 100%; 
-          pointer-events: none; 
-          background: transparent !important; 
-          z-index: 1;
-        }
-        .tex-read-overlay-content { 
-          position: relative;
-          pointer-events: none;
-        }
-        /* Hide original text but preserve layout */
-        .tex-read-overlay-content > * { 
-          visibility: hidden !important; 
-        }
-        /* Show only rendered math elements */
+        .tex-read-overlay { position: absolute; inset: 0; width: 100%; background: transparent !important; z-index: 1; pointer-events: auto; }
+        .tex-read-overlay-content { position: relative; pointer-events: none; }
+        .tex-read-overlay-content > * { visibility: hidden !important; }
         .tex-read-overlay .tex-math-inline,
-        .tex-read-overlay .tex-math-display,
-        .tex-read-overlay .tex-math-inline *,
-        .tex-read-overlay .tex-math-display * { 
-          visibility: visible !important; 
-          pointer-events: auto;
-        }
+        .tex-read-overlay .tex-math-display { visibility: visible !important; pointer-events: auto; }
       `;
       document.head.appendChild(style);
     },
+
     getReadOverlay(emailContainer) {
-      // Make container positioning context
       const computed = window.getComputedStyle(emailContainer);
       if (!['relative','absolute','fixed','sticky'].includes(computed.position)) {
         emailContainer.style.position = 'relative';
       }
-      // Find or create overlay
       let overlay = emailContainer.querySelector('.tex-read-overlay');
       if (!overlay) {
         overlay = document.createElement('div');
@@ -491,48 +423,47 @@
       }
       return overlay;
     },
+
     removeReadOverlay(emailContainer) {
       const overlay = emailContainer.querySelector('.tex-read-overlay');
       if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
     },
+
     async renderReadOverlay(emailContainer) {
       try {
         this.ensureOverlayStyles();
         const overlay = this.getReadOverlay(emailContainer);
         const content = overlay.querySelector('.tex-read-overlay-content');
-        // Copy current email HTML into overlay content (children only)
+        // Clone email HTML into overlay
         content.innerHTML = emailContainer.innerHTML;
-        // Run one-time render on overlay copy
-        await detectAndRenderLatex(content, { oneTimeRender: true });
+        // Neutralize existing media to avoid double-loading trackers
+        content.querySelectorAll('img,iframe,video').forEach(el => {
+          if (el.hasAttribute('src')) el.setAttribute('data-src', el.getAttribute('src'));
+          el.removeAttribute('src');
+        });
+        await detectAndRenderLatex(content, { oneTimeRender: true, isReadMode: true });
         return true;
       } catch (e) {
         this.log('Error rendering read overlay:', e);
         return false;
       }
     },
-    log(message, ...args) {
-      if (this.debugMode || message.includes('Error')) {
-        console.log(`TeX for Gmail: ${message}`, ...args);
-      }
-    },
+
+    log(message, ...args) { if (this.debugMode || message.includes('Error')) console.log(`TeX for Gmail: ${message}`, ...args); },
+
     // Rate limiting check
     checkRateLimit() {
       const now = Date.now();
       const oneMinuteAgo = now - 60000;
-      
-      // Remove old timestamps
       this.apiCallTimes = this.apiCallTimes.filter(time => time > oneMinuteAgo);
-      
-      // Check if we're at the limit
       if (this.apiCallTimes.length >= CONFIG.maxApiCallsPerMinute) {
         this.log('Warning: API rate limit reached');
         return false;
       }
-      
-      // Add current timestamp
       this.apiCallTimes.push(now);
       return true;
     },
+
     // Load settings from chrome.storage
     async loadSettings() {
       const defaultSettings = {
@@ -549,64 +480,63 @@
         enableNaiveTeX: false,
         enableSimpleMath: true,
         rememberSendChoice: false,
-        lastSendChoice: null
+        lastSendChoice: null,
+        serverFallback: true,
+        maxApiCallsPerMinute: 60,
+        debounceDelay: 500,
+        debugMode: false
       };
-      
       if (!this.settingsLoadPromise) {
         this.settingsLoadPromise = new Promise(async (resolve) => {
           const settings = await storageService.get(defaultSettings);
           this.settings = settings;
-          // Update CONFIG with settings
+          // Apply to runtime
           if (settings.dpiInline) CONFIG.dpi.inline = settings.dpiInline;
           if (settings.dpiDisplay) CONFIG.dpi.display = settings.dpiDisplay;
           if (settings.renderServer) this.serverPreference = settings.renderServer;
-          
-          // Set naive TeX mode based on setting
-          if (settings.enableNaiveTeX) {
-            this.naiveTexMode = true;
-            this.log('Naive TeX mode enabled from settings');
+          if (settings.maxApiCallsPerMinute) CONFIG.maxApiCallsPerMinute = settings.maxApiCallsPerMinute;
+          if (settings.debounceDelay) {
+            CONFIG.debounceDelay = settings.debounceDelay;
+            CONFIG.renderDebounceDelay = settings.debounceDelay;
           }
-          
+          if (settings.debugMode) this.debugMode = !!settings.debugMode;
+          // toggle modes
+          this.naiveTexMode = !!settings.enableNaiveTeX;
+          this.log(`Naive TeX mode ${this.naiveTexMode ? 'enabled' : 'disabled'}`);
           this.log('Settings loaded:', settings);
           resolve(settings);
         });
       }
-      
       return this.settingsLoadPromise;
     },
-    // Get current settings (with fallback)
-    async getSettings() {
-      if (!this.settings) {
-        await this.loadSettings();
-      }
-      return this.settings;
-    }
+
+    async getSettings() { if (!this.settings) await this.loadSettings(); return this.settings; }
   };
 
-  // Task 1 (Story 1.3): Toggle State Management Functions
+  // === Toggle State Management (strict boolean) ===
   function getToggleState(composeArea) {
-    // Get toggle state for a compose area, default to true (active/rendering enabled)
-    if (!TeXForGmail.toggleStates.has(composeArea)) {
-      TeXForGmail.toggleStates.set(composeArea, true);
+    // Check DOM-based override first (works for tests and Gmail)
+    const el = composeArea.closest('[data-tex-toggle]');
+    if (el) return el.getAttribute('data-tex-toggle') !== 'off';
+    
+    // For file:// protocol, default to enabled for testing
+    if (location.protocol === 'file:') {
+      TeXForGmail.log('File protocol detected, defaulting toggle to ON');
+      return true;
     }
-    return TeXForGmail.toggleStates.get(composeArea);
+    
+    // Normal toggle state from Map
+    if (!TeXForGmail.toggleStates.has(composeArea)) TeXForGmail.toggleStates.set(composeArea, false);
+    return !!TeXForGmail.toggleStates.get(composeArea);
   }
-
   function setToggleState(composeArea, state) {
-    TeXForGmail.toggleStates.set(composeArea, state);
+    TeXForGmail.toggleStates.set(composeArea, !!state);
     TeXForGmail.log(`Toggle state set to ${state ? 'active' : 'inactive'} for compose area`);
   }
+  // Removed unused function cleanupToggleState - cleanup handled by performComprehensiveCleanup
 
-  function cleanupToggleState(composeArea) {
-    if (TeXForGmail.toggleStates.has(composeArea)) {
-      TeXForGmail.toggleStates.delete(composeArea);
-      TeXForGmail.log('Toggle state cleaned up for compose area');
-    }
-  }
-
-  // Task 2 (Story 1.3): Button Visual State Management
+  // === Button Visual State Management ===
   function updateButtonVisualState(button, isActive) {
-    // Fixed: Ensure visual state matches actual toggle state
     if (isActive) {
       button.setAttribute('data-toggle-state', 'active');
       button.setAttribute('data-tooltip', 'LaTeX rendering is ON - Click to toggle OFF');
@@ -621,138 +551,46 @@
   }
 
   function getButtonForComposeArea(composeArea) {
-    // Find the button associated with a compose area
-    const parent = composeArea.closest('.M9, .AD');
+    const parent = composeArea.closest('.M9, .AD, .aoI');
     if (parent) {
       const toolbar = parent.querySelector('.aZ .J-J5-Ji, .aZ .J-Z-I, .gU .J-Z-I, [gh="tl"] .J-J5-Ji');
-      if (toolbar) {
-        return TeXForGmail.composeButtons.get(toolbar);
-      }
+      if (toolbar) return TeXForGmail.composeButtons.get(toolbar);
     }
     return null;
   }
 
-  // Robust restore function using saved snapshots
+  // === Robust restore function (reconstruct from wrappers first) ===
   function restoreLatexSource(composeArea) {
-    // Safety check to prevent accidental text deletion
     if (!composeArea || !composeArea.isConnected) {
       TeXForGmail.log('Warning: Invalid compose area for restore operation');
       return false;
     }
-    
-    // Get the saved original content
-    const originalHTML = TeXForGmail.originalContent.get(composeArea);
-    
-    if (!originalHTML && originalHTML !== '') {
-      TeXForGmail.log('Warning: No original content saved for this compose area');
-      // Fallback: Try to restore individual elements (old method as backup)
-      const renderedElements = composeArea.querySelectorAll('.tex-math-inline, .tex-math-display');
-      if (renderedElements.length === 0) {
-        TeXForGmail.log('No rendered elements to restore and no saved content');
-        return false;
-      }
-      
-      // Only use the old method if we have rendered elements but no saved content
-      TeXForGmail.log('Falling back to element-by-element restoration');
-      let restoredCount = 0;
-      renderedElements.forEach(element => {
-        // Task 3 (Story 2.2): Use extractSourceFromElement for attribute-based restoration
-        // First try to get source from img element inside the wrapper
-        const img = element.querySelector('img');
-        let latexSource = null;
-        
-        if (img) {
-          // Extract from img attributes using the new function
-          latexSource = extractSourceFromElement(img);
-        }
-        
-        // Fallback to wrapper's data-latex if img extraction failed
-        // This handles legacy rendered elements from earlier versions
-        if (!latexSource || latexSource === '[LaTeX source lost]') {
-          const latex = element.getAttribute('data-latex');
-          if (latex) {
-            const isDisplay = element.classList.contains('tex-math-display');
-            latexSource = isDisplay ? `$$${latex}$$` : `$${latex}$`;
-            TeXForGmail.log('Recovered source from wrapper element (legacy fallback)');
-          }
-        }
-        
-        if (latexSource && latexSource !== '[LaTeX source lost]' && element.parentNode) {
-          const textNode = document.createTextNode(latexSource);
-          element.parentNode.replaceChild(textNode, element);
-          restoredCount++;
+    // First choice: reconstruct from current math wrappers/images
+    const mathImgs = composeArea.querySelectorAll('.tex-math-inline img, .tex-math-display img');
+    if (mathImgs.length > 0) {
+      let restored = 0;
+      mathImgs.forEach(img => {
+        const source = img.getAttribute('data-original-source') || img.alt || extractSourceFromElement(img);
+        if (!source) return;
+        const wrapper = img.closest('.tex-math-inline, .tex-math-display') || img;
+        const node = document.createTextNode(source);
+        if (wrapper.parentNode) {
+          wrapper.parentNode.replaceChild(node, wrapper);
+          restored++;
         }
       });
-      if (restoredCount > 0) {
+      if (restored > 0) {
         composeArea.normalize();
+        TeXForGmail.log(`Restored ${restored} LaTeX sources from current wrappers`);
+        return true;
       }
-      return restoredCount > 0;
     }
-    
-    // For Gmail, we need to handle content restoration carefully
-    TeXForGmail.log('Restoring original content from snapshot');
-    
-    try {
-      // First, try direct innerHTML restoration
-      composeArea.innerHTML = originalHTML;
-      
-      // Check if content was restored properly
-      if (composeArea.innerHTML.trim() === '' && originalHTML.trim() !== '') {
-        // Gmail might have rejected the HTML, try a different approach
-        TeXForGmail.log('Direct innerHTML restoration failed, trying text-based approach');
-        
-        // Extract text content from the saved HTML
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = originalHTML;
-        const textContent = tempDiv.textContent || tempDiv.innerText || '';
-        
-        if (textContent.trim()) {
-          // For Gmail, wrap content in divs as it expects
-          const lines = textContent.split('\n');
-          composeArea.innerHTML = '';
-          
-          lines.forEach(line => {
-            if (line.trim()) {
-              const div = document.createElement('div');
-              div.textContent = line;
-              composeArea.appendChild(div);
-            } else {
-              // Empty line - add a div with br
-              const div = document.createElement('div');
-              div.appendChild(document.createElement('br'));
-              composeArea.appendChild(div);
-            }
-          });
-          
-          TeXForGmail.log('Content restored using Gmail-compatible div structure');
-        }
-      }
-      
-      // Final safety check
-      if (composeArea.textContent.trim() === '' && originalHTML.trim() !== '') {
-        TeXForGmail.log('ERROR: Content restoration failed - compose area is empty');
-        // Last resort: set as plain text
-        composeArea.textContent = originalHTML.replace(/<[^>]*>/g, '');
-      }
-      
-    } catch (error) {
-      TeXForGmail.log('Error during content restoration:', error);
-      // Fallback to text content
-      const tempDiv = document.createElement('div');
-      tempDiv.innerHTML = originalHTML;
-      composeArea.textContent = tempDiv.textContent || originalHTML;
-    }
-    
-    // DO NOT delete the saved content - we need it for multiple toggle cycles
-    // The saved content will be cleared when the compose area is removed from DOM
-    TeXForGmail.log('Original content restored (keeping snapshot for future restores)');
-    
-    return true;
+    // No wrappers → leave content as-is to avoid overwriting user edits.
+    TeXForGmail.log('No math wrappers found; skipping snapshot restore to preserve edits');
+    return false;
   }
 
   function rerenderAllLatex(composeArea) {
-    // Re-render all LaTeX when toggling on
-    // Don't preserve cursor here - it's already done in toggleRendering
     const hasChanges = detectAndRenderLatex(composeArea);
     TeXForGmail.log(`Re-rendered LaTeX, changes: ${hasChanges}`);
     return hasChanges;
@@ -761,613 +599,741 @@
   function toggleRendering(composeArea) {
     const currentState = getToggleState(composeArea);
     const newState = !currentState;
-    
     TeXForGmail.log(`Toggle: current=${currentState}, new=${newState}`);
-    
-    // Update toggle state
     setToggleState(composeArea, newState);
-    
-    // Update button visual state
     const button = getButtonForComposeArea(composeArea);
-    if (button) {
-      updateButtonVisualState(button, newState);
-    }
-    
+    if (button) updateButtonVisualState(button, newState);
+
     if (newState) {
-      // Toggle ON: Save original content ONLY if this is the first time enabling for this compose area
       const currentContent = composeArea.innerHTML;
       const currentTextContent = composeArea.textContent || '';
-      
-      // Only save if we don't already have saved content (this ensures we keep the ORIGINAL content)
       if (!TeXForGmail.originalContent.has(composeArea)) {
-        TeXForGmail.log(`Saving ORIGINAL content snapshot (first time enabling) - ${currentContent.length} chars HTML, ${currentTextContent.length} chars text`);
+        TeXForGmail.log(`Saving ORIGINAL content snapshot (first enable) - ${currentContent.length} chars HTML`);
         TeXForGmail.originalContent.set(composeArea, currentContent);
       } else {
-        TeXForGmail.log(`Using existing saved content (not overwriting) - toggle count preserved`);
+        TeXForGmail.log('Using existing saved snapshot (not overwriting)');
       }
-      
-      // Set up observer for future changes
       setupAutoRenderObserver(composeArea);
-      
-      // Check if there's actual LaTeX source to render
-      const hasLatexSource = /\$\$[^$\n]+\$\$/.test(currentTextContent) || 
-                            (/(?<!\$)\$(?!\d)([^$\n]+?)\$(?!\d)/.test(currentTextContent) && 
-                             !isCurrency(currentTextContent)) ||
-                            /\\\[([^\\]*(?:\\.[^\\]*)*?)\\\]/.test(currentTextContent) ||
-                            /\\\(([^\\]*(?:\\.[^\\]*)*?)\\\)/.test(currentTextContent);
-      
+      const hasLatexSource =
+        /\$\$[\s\S]*?\$\$/.test(currentTextContent) ||
+        (/(?<!\$)\$([^\$\n]+?)\$/.test(currentTextContent) && !isCurrency(currentTextContent)) ||
+        /\\\[([\s\S]*?)\\\]/.test(currentTextContent) ||
+        /\\\(([\s\S]*?)\\\)/.test(currentTextContent);
       if (hasLatexSource) {
-        preserveCursorPosition(composeArea, () => {
-          rerenderAllLatex(composeArea);
-        });
+        preserveCursorPosition(composeArea, () => { rerenderAllLatex(composeArea); });
       }
       showToast('LaTeX rendering ON');
     } else {
-      // Toggle OFF: Stop observer and restore original content
       const observer = TeXForGmail.composeObservers.get(composeArea);
-      if (observer) {
-        observer.disconnect();
-        TeXForGmail.composeObservers.delete(composeArea);
-        TeXForGmail.log('Observer disconnected - toggle is OFF');
-      }
-      
-      // Debug logging before restoration
-      const currentContent = composeArea.innerHTML;
-      const currentTextContent = composeArea.textContent || '';
-      TeXForGmail.log(`Before restore: ${currentContent.length} chars HTML, ${currentTextContent.length} chars text`);
-      
-      // Always try to restore if we have saved content
-      const hasSavedContent = TeXForGmail.originalContent.has(composeArea);
-      const hasRenderedLatex = composeArea.querySelectorAll('.tex-math-inline, .tex-math-display').length > 0;
-      
-      TeXForGmail.log(`Restore check: hasSavedContent=${hasSavedContent}, hasRenderedLatex=${hasRenderedLatex}`);
-      
-      if (hasSavedContent || hasRenderedLatex) {
-        // Don't use preserveCursorPosition for restoration as it can cause issues
-        const restored = restoreLatexSource(composeArea);
-        
-        // Debug logging after restoration
-        const afterContent = composeArea.innerHTML;
-        const afterTextContent = composeArea.textContent || '';
-        TeXForGmail.log(`After restore: ${afterContent.length} chars HTML, ${afterTextContent.length} chars text`);
-        
-        if (restored && afterTextContent.trim()) {
-          showToast('LaTeX source restored');
-        } else if (!afterTextContent.trim()) {
-          TeXForGmail.log('ERROR: Content appears empty after restoration!');
-          showToast('Error: Content restoration failed - please check console');
-        } else {
-          showToast('LaTeX rendering OFF');
-        }
-      } else {
-        showToast('LaTeX rendering OFF');
-      }
+      if (observer) { observer.disconnect(); TeXForGmail.composeObservers.delete(composeArea); TeXForGmail.log('Observer disconnected - toggle OFF'); }
+      TeXForGmail.log(`Before restore: ${composeArea.innerHTML.length} chars HTML`);
+      const restored = restoreLatexSource(composeArea);
+      TeXForGmail.log(`After restore: ${composeArea.innerHTML.length} chars HTML`);
+      if (restored && (composeArea.textContent || '').trim()) showToast('LaTeX source restored');
+      else showToast('LaTeX rendering OFF');
     }
-    
     return newState;
   }
 
-  // Task 1: LaTeX Pattern Detection - Compile once for performance
-  // Pattern Precedence (Story 3.2):
-  // 1. Display patterns ($$...$$ and \[...\]) are processed first
-  // 2. Inline patterns ($...$ and \(...\)) are processed second
-  // 3. Overlapping patterns: Display takes priority over inline
-  // 4. Escaped delimiters (\$, \(, \[) are handled as literal text
+  // === LaTeX Pattern Detection (compiled once) ===
   const LATEX_PATTERNS = {
-    // Display math: $$...$$ (must be on same line, no nested $$)
-    display: /\$\$([^\$\n]+?)\$\$/g,
-    // Display math: \[...\] (bracket delimiters) - Story 3.2
-    displayBracket: /\\\[([^\\]*(?:\\.[^\\]*)*?)\\\]/g,
-    // Inline math: $...$ (must be on same line, no nested $)
-    // Removed the (?!\d) negative lookahead to allow math with numbers like $1 + 1 = 2$
-    // Currency filtering is handled by the isCurrency() function instead
+    // Display math: $$...$$ (allow multiline, non-greedy)
+    display: /\$\$([\s\S]*?)\$\$/g,
+    // Display math: \[...\]
+    displayBracket: /\\\[([\s\S]*?)\\\]/g,
+    // Inline math: $...$ (no nested $)
     inline: /(?<!\$)\$([^\$\n]+?)\$/g,
-    // Inline math: \(...\) (parenthesis delimiters) - Story 3.2
-    inlineParenthesis: /\\\(([^\\]*(?:\\.[^\\]*)*?)\\\)/g,
-    // Pattern to detect escaped dollar signs
+    // Inline math: \(...\)
+    inlineParenthesis: /\\\(([\s\S]*?)\\\)/g,
+    // Escaped dollar signs (handled via placeholder)
     escaped: /\\\$/g
   };
 
   // LaTeX validation to prevent injection attacks
   function isValidLatex(latex) {
-    // Check length first (prevent regex DoS)
-    if (latex.length >= CONFIG.maxLatexLength) {
-      return false;
-    }
-    
-    // Task 4 (Story 3.2): Check for trailing spaces
-    // Don't render formulas ending with space
-    if (latex.trim() !== latex) {
-      return false;
-    }
-    
+    if (latex.length >= CONFIG.maxLatexLength) return false;
     // Basic validation - no script tags or suspicious patterns
     const dangerous = /<script|javascript:|on\w+=/i;
     return !dangerous.test(latex);
   }
 
   // Currency patterns compiled once for performance
-  // Task 5 (Story 3.2): Enhanced currency pattern detection
   const CURRENCY_PATTERNS = [
     /\$\d+(?:[,.\d]*)?(?:\s+(?:and|to|-|\+|or)\s+\$\d+(?:[,.\d]*)?)?/,
     /\$\d+(?:[,.\d]*)?\/(?:hr|hour|day|week|month|year)/i,
     /(?:USD|EUR|GBP|CAD|AUD|JPY|CNY|INR)\s*\$?\d+/i,
-    /\$\d+\.\d{2}(?:\s|$)/, // Prices like $9.99
-    /\$\d{1,3}(?:,\d{3})+/, // Formatted amounts like $1,000
-    /\$\d+\.?\d*(?:\s*(?:billion|million|thousand|hundred|k|K|M|B))?/i, // $5M, $10k
-    /\$\d+(?:\.\d{1,2})?(?:\s*[-–]\s*\$?\d+(?:\.\d{1,2})?)?/, // Price ranges: $10-$20
-    /(?:€|£|¥|₹|¢)\d+/, // Other currency symbols
-    /\$\d+(?:\.\d{2})?\s*(?:each|per|\/)/i, // $5 each, $10 per
-    /\$\d+\s*x\s*\d+/, // $5 x 3 (quantity pricing)
-    /\$\d+(?:\.\d{2})?\s+(?:off|discount|savings?|rebate)/i // $10 off, $5 discount
+    /\$\d+\.\d{2}(?:\s|$)/,
+    /\$\d{1,3}(?:,\d{3})+/,
+    /\$\d+\.?\d*(?:\s*(?:billion|million|thousand|hundred|k|K|M|B))?/i,
+    /\$\d+(?:\.\d{1,2})?(?:\s*[-–]\s*\$?\d+(?:\.\d{1,2})?)?/,
+    /(?:€|£|¥|₹|¢)\d+/,
+    /\$\d+(?:\.\d{2})?\s*(?:each|per|\/)/i,
+    /\$\d+\s*x\s*\d+/,
+    /\$\d+(?:\.\d{2})?\s+(?:off|discount|savings?|rebate)/i
   ];
-  
-  // Currency detection helper - Enhanced with more patterns
   function isCurrency(text) {
-    // Quick check for dollar sign followed by digit
-    if (!/\$\d/.test(text)) {
-      return false;
-    }
-    
-    // Task 5 (Story 3.2): Additional context checks
-    // Allow legitimate math like $1 + 1 = 2$ by checking for math operators
+    if (!/\$\d/.test(text)) return false;
     const hasMathOperators = /[\+\-\*\/\=\^_\\]/.test(text);
     const hasOnlyPricePattern = /^\$\d+(?:\.\d{2})?$/.test(text.trim());
-    
-    // If it's just a price pattern without math operators, it's currency
-    if (hasOnlyPricePattern) {
-      return true;
-    }
-    
-    // If it has math operators, less likely to be currency
-    if (hasMathOperators) {
-      // But still check for obvious currency patterns
-      return CURRENCY_PATTERNS.slice(0, 6).some(pattern => pattern.test(text));
-    }
-    
-    // Check against all currency patterns
-    return CURRENCY_PATTERNS.some(pattern => pattern.test(text));
+    if (hasOnlyPricePattern) return true;
+    if (hasMathOperators) return CURRENCY_PATTERNS.slice(0, 6).some(p => p.test(text));
+    return CURRENCY_PATTERNS.some(p => p.test(text));
   }
 
-  // Task 2 (Story 3.2): Abbreviation expansion system
-  // Expands convenient abbreviations to full LaTeX commands
-  // Examples: \bR → \mathbb R, \cH → \mathcal H, \wA → \widetilde A
-  // Applied before sending to rendering servers
-  
-  // Pre-compiled regex patterns for performance
-  const ABBREVIATION_PATTERNS = [
-    { regex: /\\b([A-Za-z])/g, replacement: '\\mathbb $1' },      // Blackboard bold: \bR → \mathbb R
-    { regex: /\\bf([A-Za-z])/g, replacement: '\\mathbf $1' },     // Bold: \bfA → \mathbf A
-    { regex: /\\d([A-Za-z])/g, replacement: '\\mathbf $1' },      // Bold (alternative): \dA → \mathbf A
-    { regex: /\\c([A-Za-z])/g, replacement: '\\mathcal $1' },     // Calligraphic: \cA → \mathcal A
-    { regex: /\\f([A-Za-z])/g, replacement: '\\mathfrak $1' },    // Fraktur: \fA → \mathfrak A
-    { regex: /\\w([A-Za-z])/g, replacement: '\\widetilde $1' },   // Wide tilde: \wA → \widetilde A
-    { regex: /\\o([A-Za-z])/g, replacement: '\\overline $1' },    // Overline: \oA → \overline A
-    { regex: /\\u([A-Za-z])/g, replacement: '\\underline $1' }    // Underline: \uA → \underline A
+  // === Abbreviation expansion ===
+  // Safe abbreviation patterns that require braces to avoid collisions with standard LaTeX commands
+  const ABBREVIATION_PATTERNS_SAFE = [
+    { regex: /\\bb\{([^}]+)\}/g, replacement: '\\mathbb{$1}' },
+    { regex: /\\bf\{([^}]+)\}/g, replacement: '\\mathbf{$1}' },
+    { regex: /\\cal\{([^}]+)\}/g, replacement: '\\mathcal{$1}' },
+    { regex: /\\frak\{([^}]+)\}/g, replacement: '\\mathfrak{$1}' },
+    { regex: /\\tilde\{([^}]+)\}/g, replacement: '\\widetilde{$1}' },
+    { regex: /\\bar\{([^}]+)\}/g, replacement: '\\overline{$1}' },
+    { regex: /\\uline\{([^}]+)\}/g, replacement: '\\underline{$1}' }
   ];
-  
   function expandAbbreviations(latex) {
-    // Apply each pre-compiled abbreviation pattern
+    // Only expand if enabled in settings to prevent LaTeX command corruption
+    if (!TeXForGmail.settings?.enableAbbreviations) return latex;
     let expanded = latex;
-    for (const pattern of ABBREVIATION_PATTERNS) {
+    for (const pattern of ABBREVIATION_PATTERNS_SAFE) {
       expanded = expanded.replace(pattern.regex, pattern.replacement);
     }
-    
     return expanded;
   }
 
-  // Task 3 (Story 3.2): Theorem environment support
-  // Supports LaTeX theorem-like environments with optional color themes
-  // Syntax: \begin{environment}[color]...\end{environment}
-  // Environments: theorem, lemma, proposition, corollary, definition
-  // Colors: red, blue, green, gray, yellow (default)
-  function detectTheoremEnvironments(text) {
-    // Environment types that are supported
-    const ENVIRONMENTS = ['theorem', 'lemma', 'proposition', 'corollary', 'definition'];
-    
-    // Build regex pattern for all environments
-    const envPattern = ENVIRONMENTS.join('|');
-    const regex = new RegExp(
-      `\\\\begin\\{(${envPattern})\\}(?:\\[([^\\]]+)\\])?([\\s\\S]*?)\\\\end\\{\\1\\}`,
-      'g'
-    );
-    
-    // Check if text contains theorem environments
-    return regex.test(text);
-  }
-  
+  // === Theorem environment support ===
+  // Removed unused function detectTheoremEnvironments - theorem detection integrated in main render
   function createTheoremWrapper(envType, colorArg, content) {
-    // Validate content length to prevent DoS
-    if (!content || content.length > CONFIG.maxLatexLength) {
-      TeXForGmail.log('Theorem content too long or empty, skipping');
-      return null;
-    }
-    
-    // Define color mapping for theorem environments
-    const THEOREM_COLORS = {
-      red: '#ffe6e6',
-      blue: '#e6f3ff',
-      green: '#e6ffe6',
-      gray: '#f0f0f0',
-      yellow: '#fff9e6'  // default
-    };
-    
-    // Get color or use default
+    if (!content || content.length > CONFIG.maxLatexLength) { TeXForGmail.log('Theorem content too long/empty, skipping'); return null; }
+    const THEOREM_COLORS = { red:'#ffe6e6', blue:'#e6f3ff', green:'#e6ffe6', gray:'#f0f0f0', yellow:'#fff9e6' };
+    const BORDER_COLORS = { '#ffe6e6':'#ff9999', '#e6f3ff':'#99ccff', '#e6ffe6':'#99ff99', '#f0f0f0':'#999999', '#fff9e6':'#f0b429' };
     const color = THEOREM_COLORS[colorArg] || THEOREM_COLORS.yellow;
-    
-    // Map colors to appropriate border colors for better visual hierarchy
-    const BORDER_COLORS = {
-      '#ffe6e6': '#ff9999',  // red
-      '#e6f3ff': '#99ccff',  // blue
-      '#e6ffe6': '#99ff99',  // green
-      '#f0f0f0': '#999999',  // gray
-      '#fff9e6': '#f0b429'   // yellow
-    };
-    
-    // Capitalize environment type for display
-    const envTitle = envType.charAt(0).toUpperCase() + envType.slice(1);
-    
-    // Create HTML wrapper for theorem using safe DOM methods
     const wrapper = document.createElement('div');
     wrapper.className = 'tex-theorem-env';
     wrapper.setAttribute('data-theorem-type', envType);
     wrapper.style.cssText = `
-      background-color: ${color};
-      border-left: 4px solid ${BORDER_COLORS[color] || '#999'};
-      padding: 10px;
-      margin: 10px 0;
-      border-radius: 4px;
-    `;
-    
-    // Add title
+      background-color:${color}; border-left:4px solid ${BORDER_COLORS[color] || '#999'};
+      padding:10px; margin:10px 0; border-radius:4px;`;
     const title = document.createElement('strong');
-    title.textContent = `${envTitle}: `;
-    title.style.cssText = 'display: block; margin-bottom: 5px;';
-    
-    // Add content (will be processed for LaTeX later)
+    title.textContent = `${envType.charAt(0).toUpperCase()+envType.slice(1)}: `;
+    title.style.cssText = 'display:block;margin-bottom:5px;';
     const contentDiv = document.createElement('div');
     contentDiv.className = 'tex-theorem-content';
     contentDiv.textContent = content.trim();
-    
-    wrapper.appendChild(title);
-    wrapper.appendChild(contentDiv);
-    
+    wrapper.appendChild(title); wrapper.appendChild(contentDiv);
     return wrapper;
   }
 
-  // Task 2: CodeCogs API Integration with validation and rate limiting
+  // === Render Server URLs / Health ===
   function getCodeCogsUrl(latex, isDisplay) {
-    // Expand abbreviations before processing
     latex = expandAbbreviations(latex);
+    if (!isValidLatex(latex)) { TeXForGmail.log('Invalid/dangerous LaTeX:', latex); return null; }
+    if (!TeXForGmail.checkRateLimit()) { TeXForGmail.log('Rate limit exceeded, skipping render'); return null; }
     
-    // Validate LaTeX before sending to API
-    if (!isValidLatex(latex)) {
-      TeXForGmail.log('Invalid or dangerous LaTeX detected:', latex);
-      return null;
-    }
-    
-    // Check rate limit AFTER validation (don't count invalid requests)
-    if (!TeXForGmail.checkRateLimit()) {
-      TeXForGmail.log('Rate limit exceeded, skipping render');
-      return null;
-    }
-    
-    const encoded = encodeURIComponent(latex);
+    // Properly encode LaTeX with DPI settings
+    // IMPORTANT: Don't use template literals with backslashes to avoid escape issues
     const dpi = isDisplay ? CONFIG.dpi.display : CONFIG.dpi.inline;
-    // Fix: Remove invalid \inline prefix - use empty string or \textstyle for inline
-    const displayPrefix = isDisplay ? '\\displaystyle' : '';
-    return `https://latex.codecogs.com/png.image?\\dpi{${dpi}}${displayPrefix}%20${encoded}`;
+    const displayPrefix = isDisplay ? '\\displaystyle ' : '';
+    
+    // Build the full LaTeX command string carefully to preserve backslashes
+    const dpiCommand = '\\dpi{' + dpi + '} ';
+    const fullLatex = dpiCommand + displayPrefix + latex.trim();
+    
+    // Encode the entire LaTeX command
+    const encoded = encodeURIComponent(fullLatex);
+    return `https://latex.codecogs.com/png.image?${encoded}`;
   }
-
-  // WordPress Server as Fallback (Task 6)
-  function getWordPressUrl(latex) {
-    // Expand abbreviations before processing
+  function getWordPressUrl(latex, isDisplay = false) {
+    // Apply rate limiting to WordPress as well
+    if (!TeXForGmail.checkRateLimit()) {
+      TeXForGmail.log('WordPress rate limit exceeded');
+      return null;
+    }
     latex = expandAbbreviations(latex);
-    const encoded = encodeURIComponent(latex);
-    return `https://s0.wp.com/latex.php?latex=${encoded}&bg=ffffff&fg=000000&s=0`;
+    const full = (isDisplay ? '\\displaystyle ' : '') + latex.trim();
+    const dpi = isDisplay ? CONFIG.dpi.display : CONFIG.dpi.inline;
+    const s = Math.max(0, Math.min(4, Math.round(dpi / 100))); // WP supports 0..4
+    const encoded = encodeURIComponent(full);
+    return `https://s0.wp.com/latex.php?latex=${encoded}&bg=ffffff&fg=000000&s=${s}`;
   }
 
-  // Server Health Monitoring (Task 7)
-  const ServerHealth = {
-    codecogs: { failures: 0, lastCheck: 0 },
-    wordpress: { failures: 0, lastCheck: 0 },
-    resetThreshold: 300000, // 5 minutes
-    maxFailures: 3
-  };
-
+  const ServerHealth = { codecogs: { failures: 0, lastCheck: 0 }, wordpress: { failures: 0, lastCheck: 0 }, resetThreshold: 300000, maxFailures: 3 };
   function checkServerHealth(server) {
     const now = Date.now();
     const health = ServerHealth[server];
-    
-    // Reset counter if enough time passed
-    if (now - health.lastCheck > ServerHealth.resetThreshold) {
-      health.failures = 0;
-    }
+    if (now - health.lastCheck > ServerHealth.resetThreshold) health.failures = 0;
     health.lastCheck = now;
-    
     return health.failures < ServerHealth.maxFailures;
   }
-
-  // Safe server switching with mutex protection
   function switchServerSafely(newServer, reason = '') {
-    // Check if switch is already in progress
-    if (TeXForGmail.serverSwitchMutex) {
-      TeXForGmail.log('Server switch already in progress, skipping');
-      return false;
-    }
-
-    // Prevent switching too frequently (within 5 seconds)
+    if (TeXForGmail.serverSwitchMutex) { TeXForGmail.log('Server switch already in progress, skipping'); return false; }
     const now = Date.now();
-    if (now - TeXForGmail.serverSwitchTimestamp < 5000) {
-      TeXForGmail.log('Server switch attempted too soon, skipping');
-      return false;
-    }
-
-    // Acquire mutex
+    if (now - TeXForGmail.serverSwitchTimestamp < 5000) { TeXForGmail.log('Server switch attempted too soon, skipping'); return false; }
     TeXForGmail.serverSwitchMutex = true;
     TeXForGmail.serverSwitchTimestamp = now;
-
     try {
-      // Only switch if actually changing
-      if (TeXForGmail.serverPreference === newServer) {
-        TeXForGmail.log('Server already set to', newServer);
-        return false;
-      }
-
-      // Perform the switch
+      if (TeXForGmail.serverPreference === newServer) { TeXForGmail.log('Server already set to', newServer); return false; }
       TeXForGmail.serverPreference = newServer;
-      
-      // Persist to sessionStorage with error handling
-      try {
-        sessionStorage.setItem('tex-gmail-server-preference', newServer);
-      } catch (e) {
-        TeXForGmail.log('Could not save server preference to sessionStorage:', e);
-      }
-
-      TeXForGmail.log(`Server switched to ${newServer}${reason ? ': ' + reason : ''}`);
-      
-      // Show user notification
-      const message = newServer === 'wordpress' 
-        ? 'Switching to backup math server...' 
-        : 'Switching to primary math server...';
-      showToast(message, 'info');
-      
+      try { sessionStorage.setItem('tex-gmail-server-preference', newServer); } catch (_) { TeXForGmail.log('Could not save server preference to sessionStorage'); }
+      TeXForGmail.log(`Server switched to ${newServer}${reason ? ': '+reason : ''}`);
+      showToast(newServer === 'wordpress' ? 'Switching to backup math server...' : 'Switching to primary math server...', 'info');
       return true;
     } finally {
-      // Always release mutex
-      setTimeout(() => {
-        TeXForGmail.serverSwitchMutex = false;
-      }, 100); // Small delay to prevent immediate re-entry
+      setTimeout(() => { TeXForGmail.serverSwitchMutex = false; }, 100);
     }
   }
 
-  // Simple Math Mode Implementation (Task 4)
+  // === Simple Math Mode (DOM) ===
   function sanitizeForHTML(text) {
-    const escapeMap = {
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;',
-      "'": '&#x27;',
-      '/': '&#x2F;',
-      '`': '&#x60;',
-      '=': '&#x3D;',
-      '(': '&#40;',
-      ')': '&#41;',
-      '[': '&#91;',
-      ']': '&#93;',
-      '{': '&#123;',
-      '}': '&#125;',
-      '\\': '&#92;',
-      '|': '&#124;',
-      '*': '&#42;',
-      '+': '&#43;',
-      '?': '&#63;',
-      '.': '&#46;',
-      '^': '&#94;',
-      '$': '&#36;'
-    };
-    return text.replace(/[&<>"'\/`=()[\]{}\\|*+?.^$]/g, char => escapeMap[char]);
+    const escapeMap = { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#x27;','/':'&#x2F;','`':'&#x60;','=':'&#x3D;',
+      '(':'&#40;',')':'&#41;','[':'&#91;',']':'&#93;','{':'&#123;','}':'&#125;','\\':'&#92;','|':'&#124;','*':'&#42;','+':'&#43;','?':'&#63;','.' :'&#46;','^':'&#94;','$':'&#36;' };
+    return text.replace(/[&<>"'\/`=()[\]{}\\|*+?.^$]/g, ch => escapeMap[ch]);
   }
-
   function createSafeElement(tag, content, className) {
-    const element = document.createElement(tag);
-    if (className) element.className = className;
-    if (content) element.textContent = content;
-    return element;
+    const el = document.createElement(tag);
+    if (className) el.className = className;
+    if (content) el.textContent = content;
+    return el;
   }
-
-  function renderSimpleMath(latex, isDisplay) {
-    // Expand abbreviations before processing
+  function renderSimpleMath(latex, isDisplay, opts = {}) {
     latex = expandAbbreviations(latex);
-    
-    // Greek letter mapping
     const greekLetters = {
-      '\\alpha': 'α', '\\beta': 'β', '\\gamma': 'γ', '\\delta': 'δ',
-      '\\epsilon': 'ε', '\\zeta': 'ζ', '\\eta': 'η', '\\theta': 'θ',
-      '\\iota': 'ι', '\\kappa': 'κ', '\\lambda': 'λ', '\\mu': 'μ',
-      '\\nu': 'ν', '\\xi': 'ξ', '\\pi': 'π', '\\rho': 'ρ',
-      '\\sigma': 'σ', '\\tau': 'τ', '\\upsilon': 'υ', '\\phi': 'φ',
-      '\\chi': 'χ', '\\psi': 'ψ', '\\omega': 'ω',
-      '\\Alpha': 'Α', '\\Beta': 'Β', '\\Gamma': 'Γ', '\\Delta': 'Δ',
-      '\\Epsilon': 'Ε', '\\Zeta': 'Ζ', '\\Eta': 'Η', '\\Theta': 'Θ',
-      '\\Iota': 'Ι', '\\Kappa': 'Κ', '\\Lambda': 'Λ', '\\Mu': 'Μ',
-      '\\Nu': 'Ν', '\\Xi': 'Ξ', '\\Pi': 'Π', '\\Rho': 'Ρ',
-      '\\Sigma': 'Σ', '\\Tau': 'Τ', '\\Upsilon': 'Υ', '\\Phi': 'Φ',
-      '\\Chi': 'Χ', '\\Psi': 'Ψ', '\\Omega': 'Ω',
-      '\\sum': '∑', '\\int': '∫', '\\prod': '∏', '\\sqrt': '√',
-      '\\infty': '∞', '\\partial': '∂', '\\nabla': '∇', '\\pm': '±',
-      '\\times': '×', '\\div': '÷', '\\cdot': '·', '\\leq': '≤',
-      '\\geq': '≥', '\\neq': '≠', '\\approx': '≈', '\\equiv': '≡',
-      '\\in': '∈', '\\notin': '∉', '\\subset': '⊂', '\\supset': '⊃',
-      '\\cup': '∪', '\\cap': '∩', '\\emptyset': '∅', '\\forall': '∀',
-      '\\exists': '∃', '\\rightarrow': '→', '\\leftarrow': '←',
-      '\\Rightarrow': '⇒', '\\Leftarrow': '⇐', '\\leftrightarrow': '↔'
+      '\\alpha':'α','\\beta':'β','\\gamma':'γ','\\delta':'δ','\\epsilon':'ε','\\zeta':'ζ','\\eta':'η','\\theta':'θ','\\iota':'ι','\\kappa':'κ','\\lambda':'λ','\\mu':'μ','\\nu':'ν','\\xi':'ξ','\\pi':'π','\\rho':'ρ','\\sigma':'σ','\\tau':'τ','\\upsilon':'υ','\\phi':'φ','\\chi':'χ','\\psi':'ψ','\\omega':'ω',
+      '\\Alpha':'Α','\\Beta':'Β','\\Gamma':'Γ','\\Delta':'Δ','\\Epsilon':'Ε','\\Zeta':'Ζ','\\Eta':'Η','\\Theta':'Θ','\\Iota':'Ι','\\Kappa':'Κ','\\Lambda':'Λ','\\Mu':'Μ','\\Nu':'Ν','\\Xi':'Ξ','\\Pi':'Π','\\Rho':'Ρ','\\Sigma':'Σ','\\Tau':'Τ','\\Upsilon':'Υ','\\Phi':'Φ','\\Chi':'Χ','\\Psi':'Ψ','\\Omega':'Ω',
+      '\\sum':'∑','\\int':'∫','\\prod':'∏','\\sqrt':'√','\\infty':'∞','\\partial':'∂','\\nabla':'∇','\\pm':'±','\\times':'×','\\div':'÷','\\cdot':'·','\\leq':'≤','\\geq':'≥','\\neq':'≠','\\approx':'≈','\\equiv':'≡','\\in':'∈','\\notin':'∉','\\subset':'⊂','\\supset':'⊃','\\cup':'∪','\\cap':'∩','\\emptyset':'∅','\\forall':'∀','\\exists':'∃','\\rightarrow':'→','\\leftarrow':'←','\\Rightarrow':'⇒','\\Leftarrow':'⇐','\\leftrightarrow':'↔'
     };
-
     try {
-      // Create wrapper span
       const wrapper = document.createElement('span');
       wrapper.className = isDisplay ? 'tex-math-display' : 'tex-math-inline';
       wrapper.setAttribute('data-latex', latex);
-      wrapper.setAttribute('data-display', isDisplay);
+      wrapper.setAttribute('data-display', isDisplay ? 'block' : 'inline');
       wrapper.setAttribute('data-render-mode', 'simple');
-      // Make Simple Math wrappers keyboard-focusable for a11y (QA Story 4.5)
       wrapper.setAttribute('tabindex', '0');
       wrapper.setAttribute('aria-label', 'Math. Press Tab for Copy, or open menu with Shift+F10.');
-      
-      // Add proper styling for inline vs display differentiation
-      if (isDisplay) {
-        wrapper.style.display = 'block';
-        wrapper.style.textAlign = 'center';
-        wrapper.style.margin = '1em 0';
-      } else {
-        wrapper.style.display = 'inline-block';
-        wrapper.style.verticalAlign = 'middle';
-      }
-      
-      // Process the latex string
+      if (isDisplay) { wrapper.style.display = 'block'; wrapper.style.textAlign = 'center'; wrapper.style.margin = '1em 0'; }
+      else { wrapper.style.display = 'inline-block'; wrapper.style.verticalAlign = 'middle'; }
       let processedLatex = latex;
-      
-      // Replace Greek letters and symbols
-      for (const [tex, symbol] of Object.entries(greekLetters)) {
-        const regex = new RegExp(tex.replace(/\\/g, '\\\\'), 'g');
-        processedLatex = processedLatex.replace(regex, symbol);
+      for (const [tex, sym] of Object.entries(greekLetters)) {
+        const regex = new RegExp(tex.replace(/\\/g, '\\\\'), 'g'); processedLatex = processedLatex.replace(regex, sym);
       }
-      
-      // Parse and create DOM structure
       const container = document.createElement('span');
-      container.style.fontFamily = 'serif';
+      const settings = TeXForGmail.settings || {};
+      const isRead = !!opts.isReadMode;
+      container.style.fontFamily = isRead
+        ? (settings.simpleMathFontIncoming || 'serif')
+        : (settings.simpleMathFontOutgoing || 'serif');
       container.style.fontSize = isDisplay ? '1.2em' : '1em';
-      if (!isDisplay) {
-        container.style.verticalAlign = 'middle';
-      }
-      
-      // Process superscripts and subscripts
+      if (!isDisplay) container.style.verticalAlign = 'middle';
       const parts = [];
       let currentText = '';
       let i = 0;
-      
       while (i < processedLatex.length) {
-        const char = processedLatex[i];
-        
-        if (char === '^') {
-          // Handle superscript
-          if (currentText) {
-            parts.push({ type: 'text', content: currentText });
-            currentText = '';
-          }
+        const ch = processedLatex[i];
+        if (ch === '^' || ch === '_') {
+          const type = ch === '^' ? 'sup' : 'sub';
+          if (currentText) { parts.push({ type: 'text', content: currentText }); currentText = ''; }
           i++;
-          let supContent = '';
+          let content = '';
           if (processedLatex[i] === '{') {
-            // Find matching closing brace
-            i++;
-            let braceCount = 1;
-            while (i < processedLatex.length && braceCount > 0) {
-              if (processedLatex[i] === '{') braceCount++;
-              else if (processedLatex[i] === '}') braceCount--;
-              if (braceCount > 0) supContent += processedLatex[i];
+            i++; let depth = 1;
+            while (i < processedLatex.length && depth > 0) {
+              if (processedLatex[i] === '{') depth++;
+              else if (processedLatex[i] === '}') depth--;
+              if (depth > 0) content += processedLatex[i];
               i++;
             }
           } else {
-            // Single character superscript
-            supContent = processedLatex[i];
+            content = processedLatex[i] || '';
             i++;
           }
-          parts.push({ type: 'sup', content: supContent });
-        } else if (char === '_') {
-          // Handle subscript
-          if (currentText) {
-            parts.push({ type: 'text', content: currentText });
-            currentText = '';
-          }
-          i++;
-          let subContent = '';
-          if (processedLatex[i] === '{') {
-            // Find matching closing brace
-            i++;
-            let braceCount = 1;
-            while (i < processedLatex.length && braceCount > 0) {
-              if (processedLatex[i] === '{') braceCount++;
-              else if (processedLatex[i] === '}') braceCount--;
-              if (braceCount > 0) subContent += processedLatex[i];
-              i++;
-            }
-          } else {
-            // Single character subscript
-            subContent = processedLatex[i];
-            i++;
-          }
-          parts.push({ type: 'sub', content: subContent });
+          parts.push({ type, content });
         } else {
-          currentText += char;
-          i++;
+          currentText += ch; i++;
         }
       }
-      
-      if (currentText) {
-        parts.push({ type: 'text', content: currentText });
-      }
-      
-      // Build DOM from parts
-      parts.forEach(part => {
-        if (part.type === 'text') {
-          const textNode = document.createTextNode(part.content);
-          container.appendChild(textNode);
-        } else if (part.type === 'sup') {
-          const sup = createSafeElement('sup', part.content);
-          container.appendChild(sup);
-        } else if (part.type === 'sub') {
-          const sub = createSafeElement('sub', part.content);
-          container.appendChild(sub);
-        }
+      if (currentText) parts.push({ type: 'text', content: currentText });
+      parts.forEach(p => {
+        if (p.type === 'text') container.appendChild(document.createTextNode(p.content));
+        if (p.type === 'sup') container.appendChild(createSafeElement('sup', p.content));
+        if (p.type === 'sub') container.appendChild(createSafeElement('sub', p.content));
       });
-      
       wrapper.appendChild(container);
       return wrapper;
-
     } catch (error) {
       TeXForGmail.log('Error in renderSimpleMath:', error);
       return null;
     }
   }
 
-  // Naive TeX Detection and Rendering (Task 5)
+  // === Naive TeX detection ===
   function detectNaiveTeX(text) {
-    // Patterns for naive TeX detection
     const patterns = [
-      /\b([a-zA-Z])\^(\{[^}]+\}|\w+)/g,  // x^2 or x^{10}
-      /\b([a-zA-Z])_(\{[^}]+\}|\w+)/g,   // a_n or a_{10}
-      /\be\^\(([^)]+)\)/g,                // e^(i*pi)
+      /\b([a-zA-Z])\^(\{[^}]+\}|\w+)/g,
+      /\b([a-zA-Z])_(\{[^}]+\}|\w+)/g,
+      /\be\^\(([^)]+)\)/g,
       /\\(alpha|beta|gamma|delta|epsilon|theta|lambda|mu|pi|sigma|omega|Alpha|Beta|Gamma|Delta|Epsilon|Theta|Lambda|Mu|Pi|Sigma|Omega)/g,
-      /\b\d+\/\d+\b/g,                    // Fractions like 1/2, 3/4
-      /\b([a-zA-Z])_\d+\^\d+/g            // Combined subscript and superscript like x_1^2
+      /\b\d+\/\d+\b/g,
+      /\b([a-zA-Z])_\d+\^\d+/g
     ];
-    
-    // Check if text contains potential naive TeX (avoid false positives with currency)
     const currencyPattern = /\$[\d,]+\.?\d*/g;
-    const hasCurrency = currencyPattern.test(text);
-    
-    // Also avoid URLs and file paths
     const urlPattern = /https?:\/\/|www\.|\/\w+\.\w+/gi;
-    const hasUrl = urlPattern.test(text);
-    
-    if (hasCurrency || hasUrl) {
-      // Skip if text primarily contains currency or URLs
-      return null;
-    }
-    
-    // Check if any pattern matches
-    for (const pattern of patterns) {
-      if (pattern.test(text)) {
-        return text;  // Return the text for processing
-      }
-    }
-    
+    if (currencyPattern.test(text) || urlPattern.test(text)) return null;
+    for (const p of patterns) if (p.test(text)) return text;
     return null;
   }
 
-  // Task 3: Rendering Pipeline - Text node traversal with double-render prevention
+  // === Create wrapper element for rendered math ===
+  function createMathWrapper(latex, isDisplay, imgUrl) {
+    const wrapper = document.createElement('span');
+    wrapper.className = isDisplay ? 'tex-math-display' : 'tex-math-inline';
+    wrapper.setAttribute('data-latex', latex);
+    wrapper.setAttribute('data-processed', 'true');
+    wrapper.setAttribute('data-tex-toggled', 'rendered');
+    if (isDisplay) { wrapper.style.display = 'block'; wrapper.style.textAlign = 'center'; wrapper.style.margin = '1em 0'; }
+    else { wrapper.style.display = 'inline-block'; wrapper.style.verticalAlign = 'middle'; }
+    
+    // Add loading indicator
+    const loadingIndicator = document.createElement('span');
+    loadingIndicator.style.cssText = 'display: inline-block; width: 20px; height: 20px; border: 2px solid #ccc; border-top-color: #333; border-radius: 50%; animation: tex-spin 0.8s linear infinite;';
+    loadingIndicator.setAttribute('aria-label', 'Loading LaTeX...');
+    wrapper.appendChild(loadingIndicator);
+    
+    // Add CSS animation if not already present
+    if (!document.querySelector('#tex-loading-styles')) {
+      const style = document.createElement('style');
+      style.id = 'tex-loading-styles';
+      style.textContent = '@keyframes tex-spin { to { transform: rotate(360deg); } }';
+      document.head.appendChild(style);
+    }
+    
+    const img = document.createElement('img');
+    img.src = imgUrl || '';
+    img.alt = isDisplay ? `$$${latex}$$` : `$${latex}$`;
+    img.title = `LaTeX: ${img.alt}`;
+    if ('dataset' in img) {
+      img.setAttribute('data-latex', latex);
+      img.setAttribute('data-display', isDisplay ? 'block' : 'inline');
+      img.setAttribute('data-timestamp', Date.now().toString());
+      img.setAttribute('data-version', '1.0.0');
+    } else {
+      img.setAttribute('tex-latex', latex);
+      img.setAttribute('tex-display', isDisplay ? 'block' : 'inline');
+      TeXForGmail.log('Using fallback attributes - dataset not supported');
+    }
+    img.className = 'tex-rendered';
+    img.contentEditable = false;
+    if (isDisplay) { img.style.display = 'inline-block'; img.style.maxWidth = '100%'; }
+    else { img.style.verticalAlign = 'middle'; img.style.display = 'inline'; }
+    img.style.cursor = 'pointer';
+    img.setAttribute('role', 'button');
+    img.setAttribute('aria-label', 'Click to edit LaTeX source');
+    img.setAttribute('tabindex', '0');
+    img.setAttribute('data-original-source', isDisplay ? `$$${latex}$$` : `$${latex}$`);
+
+    // Enhanced error handling with retry and fallback
+    let retryCount = 0;
+    const maxRetries = 2;
+    
+    img.onload = function() {
+      // Remove loading indicator on successful load
+      if (loadingIndicator && loadingIndicator.parentNode === wrapper) {
+        wrapper.removeChild(loadingIndicator);
+      }
+      // Reset server health on success
+      if ((img.src || '').includes('codecogs.com')) ServerHealth.codecogs.failures = Math.max(0, ServerHealth.codecogs.failures - 1);
+      if ((img.src || '').includes('wp.com')) ServerHealth.wordpress.failures = Math.max(0, ServerHealth.wordpress.failures - 1);
+    };
+    
+    img.onerror = function() {
+      const settings = TeXForGmail.settings || {};
+      const fallbackAllowed = settings.serverFallback !== false;
+      const isFromCodecogs = (img.src || '').includes('codecogs.com');
+      const isFromWP = (img.src || '').includes('wp.com');
+
+      // First, try retry with same server
+      if (retryCount < maxRetries && !img.hasAttribute('data-retry-exhausted')) {
+        retryCount++;
+        TeXForGmail.log(`Retrying LaTeX render, attempt ${retryCount}/${maxRetries}`);
+        setTimeout(() => {
+          img.src = img.src + '&retry=' + retryCount; // Force reload with cache bust
+        }, 500 * retryCount); // Exponential backoff
+        return;
+      }
+      
+      img.setAttribute('data-retry-exhausted', 'true');
+      
+      if (isFromCodecogs) ServerHealth.codecogs.failures++; else if (isFromWP) ServerHealth.wordpress.failures++;
+
+      // Try one-time fallback to the other server before giving up
+      if (fallbackAllowed && !img.getAttribute('data-fallback-attempted')) {
+        let fallbackUrl = null;
+        if (isFromCodecogs) fallbackUrl = getWordPressUrl(latex, isDisplay);
+        else fallbackUrl = getCodeCogsUrl(latex, isDisplay);
+        if (fallbackUrl) {
+          img.setAttribute('data-fallback-attempted', '1');
+          TeXForGmail.log('Attempting fallback server for LaTeX image');
+          showToast('Switching to backup math server...', 'info');
+          img.src = fallbackUrl;
+          // also flip preference for future if many failures
+          if (isFromCodecogs && ServerHealth.codecogs.failures >= ServerHealth.maxFailures) switchServerSafely('wordpress', 'CodeCogs failures');
+          if (isFromWP && ServerHealth.wordpress.failures >= ServerHealth.maxFailures) switchServerSafely('codecogs', 'WordPress failures');
+          return;
+        }
+      }
+      // If still failing, try Simple Math as last resort
+      if (settings.enableSimpleMath) {
+        TeXForGmail.log('All image servers failed, attempting Simple Math fallback');
+        const simpleMathElement = renderSimpleMath(latex, isDisplay, { isReadMode: false });
+        if (simpleMathElement) {
+          // Replace the failed image wrapper with Simple Math
+          wrapper.parentNode.replaceChild(simpleMathElement, wrapper);
+          showToast('Using offline math rendering', 'info');
+          return;
+        }
+      }
+      
+      // If everything failed, show source and remove loading indicator
+      if (loadingIndicator && loadingIndicator.parentNode === wrapper) {
+        wrapper.removeChild(loadingIndicator);
+      }
+      const sourceText = isDisplay ? `$$${latex}$$` : `$${latex}$`;
+      wrapper.textContent = sourceText;
+      wrapper.classList.add('tex-render-error');
+      wrapper.setAttribute('title', 'Failed to render LaTeX - showing source');
+      wrapper.setAttribute('data-tex-source', sourceText);
+      try { showToast('Failed to render LaTeX — showing source', 'error'); } catch (_) {}
+      try { if (typeof localStorage !== 'undefined' && img.src) localStorage.setItem(`tex_${img.src}`, sourceText); } catch (_) {}
+    };
+    
+    img.addEventListener('click', function(e) {
+      e.preventDefault(); e.stopPropagation();
+      if (e.buttons !== 0 && e.buttons !== 1) return;
+      TeXForGmail.handleImageClick(this);
+    });
+    wrapper.appendChild(img);
+    return wrapper;
+  }
+
+  // Click-to-edit handler
+  TeXForGmail.handleImageClick = function(img) {
+    const wrapper = img.parentElement;
+    const sourceText = img.getAttribute('data-original-source');
+    if (!sourceText) { TeXForGmail.log('Click-to-edit: No source text found'); return; }
+    const textNode = document.createTextNode(sourceText);
+    wrapper.parentNode.replaceChild(textNode, wrapper);
+    const range = document.createRange();
+    const delimLength = sourceText.startsWith('$$') ? 2 : 1;
+    range.setStart(textNode, delimLength);
+    range.setEnd(textNode, delimLength);
+    const selection = window.getSelection();
+    selection.removeAllRanges(); selection.addRange(range);
+    const composeArea = textNode.parentElement;
+    if (composeArea && composeArea.focus) composeArea.focus();
+    TeXForGmail.log('Click-to-edit: Restored source text', sourceText);
+  };
+
+  // Insert LaTeX template at cursor position (Range API, no execCommand)
+  TeXForGmail.insertTexTemplate = function(template) {
+    const sel = window.getSelection(); if (!sel.rangeCount) return false;
+    const range = sel.getRangeAt(0);
+    const composeArea = this.getActiveTarget();
+    if (!composeArea) { TeXForGmail.log('Template insertion: Not in compose area'); return false; }
+    const cursorPos = template.indexOf('|');
+    const cleanTemplate = template.replace(/\|/g, '');
+    // Insert text node
+    range.deleteContents();
+    const node = document.createTextNode(cleanTemplate);
+    range.insertNode(node);
+    // Move caret
+    const newRange = document.createRange();
+    const offset = cursorPos >= 0 ? cursorPos : cleanTemplate.length;
+    newRange.setStart(node, Math.min(offset, node.textContent.length));
+    newRange.setEnd(node, Math.min(offset, node.textContent.length));
+    sel.removeAllRanges(); sel.addRange(newRange);
+    return true;
+  };
+
+  // Navigate between template placeholders
+  TeXForGmail.navigateTemplate = function(direction) {
+    const selection = window.getSelection(); if (!selection.rangeCount) return;
+    const range = selection.getRangeAt(0);
+    const container = range.commonAncestorContainer;
+    if (container.nodeType !== Node.TEXT_NODE) return;
+    const text = container.textContent; const currentPos = range.startOffset;
+    const placeholders = [];
+    let braceDepth = 0; let placeholderStart = -1;
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] === '{') { if (braceDepth === 0) placeholderStart = i; braceDepth++; }
+      else if (text[i] === '}') { braceDepth--; if (braceDepth === 0 && placeholderStart >= 0) { if (i - placeholderStart === 1) placeholders.push({ start: placeholderStart + 1, end: i }); placeholderStart = -1; } }
+    }
+    if (placeholders.length === 0) return;
+    let target;
+    if (direction === 'next') { target = placeholders.find(p => p.start > currentPos) || placeholders[0]; }
+    else { target = [...placeholders].reverse().find(p => p.start < currentPos) || placeholders[placeholders.length - 1]; }
+    if (target) {
+      const newRange = document.createRange();
+      newRange.setStart(container, target.start); newRange.setEnd(container, target.end);
+      selection.removeAllRanges(); selection.addRange(newRange);
+    }
+  };
+
+  // Extract LaTeX source from element with multiple fallbacks
+  function extractSourceFromElement(element) {
+    if (!element) { TeXForGmail.log('extractSourceFromElement: null element'); return '[LaTeX source lost]'; }
+    if (element.dataset?.latex) {
+      const display = element.dataset.display === 'block' ? '$$' : '$'; return `${display}${element.dataset.latex}${display}`;
+    }
+    if (element.alt) return element.alt;
+    if (element.getAttribute) {
+      const texLatex = element.getAttribute('tex-latex');
+      if (texLatex) {
+        const texDisplay = element.getAttribute('tex-display');
+        const display = texDisplay === 'block' ? '$$' : '$'; return `${display}${texLatex}${display}`;
+      }
+    }
+    if (element.title?.startsWith('LaTeX: ')) return element.title.substring(7);
+    try {
+      if (typeof localStorage !== 'undefined' && element.src) {
+        const cached = localStorage.getItem(`tex_${element.src}`);
+        if (cached) { TeXForGmail.log('Source recovered from localStorage cache'); return cached; }
+      }
+    } catch (_) { TeXForGmail.log('localStorage not available for source extraction'); }
+    TeXForGmail.log('WARNING: LaTeX source could not be extracted from element');
+    return '[LaTeX source lost]';
+  }
+
+  // === Improved cursor preservation using temporary markers ===
+  function preserveCursorPosition(composeArea, callback) {
+    const sel = window.getSelection();
+    let hadFocus = composeArea.contains(document.activeElement) || composeArea === document.activeElement;
+    let collapsed = true;
+    let startMarker = null, endMarker = null;
+
+    if (sel.rangeCount > 0 && hadFocus) {
+      const range = sel.getRangeAt(0);
+      if (composeArea.contains(range.startContainer) && composeArea.contains(range.endContainer)) {
+        collapsed = range.collapsed;
+        startMarker = document.createElement('span');
+        startMarker.setAttribute('data-tex-caret', 'start');
+        startMarker.style.display = 'inline-block'; startMarker.style.width = '0'; startMarker.style.height = '0'; startMarker.style.overflow = 'hidden';
+        range.insertNode(startMarker);
+        if (!collapsed) {
+          const endRange = range.cloneRange();
+          endRange.collapse(false);
+          endMarker = document.createElement('span');
+          endMarker.setAttribute('data-tex-caret', 'end');
+          endMarker.style.display = 'inline-block'; endMarker.style.width = '0'; endMarker.style.height = '0'; endMarker.style.overflow = 'hidden';
+          endRange.insertNode(endMarker);
+        }
+      }
+    }
+
+    const result = callback();
+
+    // Restore selection
+    try {
+      const newRange = document.createRange();
+      const s = composeArea.querySelector('span[data-tex-caret="start"]');
+      const e = composeArea.querySelector('span[data-tex-caret="end"]');
+      if (s) {
+        newRange.setStartBefore(s);
+        if (e) newRange.setEndBefore(e); else newRange.collapse(true);
+        sel.removeAllRanges(); sel.addRange(newRange);
+      }
+      // cleanup markers
+      if (s && s.parentNode) s.parentNode.removeChild(s);
+      if (e && e.parentNode) e.parentNode.removeChild(e);
+      if (document.activeElement !== composeArea) { try { composeArea.focus(); } catch (_) {} }
+    } catch (err) {
+      TeXForGmail.log('Could not restore cursor position:', err);
+      if (document.activeElement !== composeArea) { try { composeArea.focus(); } catch (_) {} }
+    }
+    return result;
+  }
+
+  // === Main rendering function ===
+  function detectAndRenderLatex(rootElement, options = {}) {
+    // Allow call without explicit target by detecting compose area
+    if (!rootElement) { rootElement = findComposeArea(); if (!rootElement) return false; }
+    const { oneTimeRender = false, isReadMode = false } = options;
+    if (!oneTimeRender && !getToggleState(rootElement)) { TeXForGmail.log('Rendering disabled by toggle, skipping'); return false; }
+    if (!isReadMode && rootElement.getAttribute('data-tex-processing') === 'true') { TeXForGmail.log('Already processing this area, skipping'); return false; }
+    rootElement.setAttribute('data-tex-processing', 'true');
+    if (isReadMode && !TeXForGmail.originalContent.has(rootElement)) {
+      TeXForGmail.originalContent.set(rootElement, rootElement.innerHTML);
+      TeXForGmail.log('Stored original content for read mode');
+    }
+    try {
+      const textNodes = findTextNodes(rootElement);
+      let hasChanges = false;
+
+      textNodes.forEach(textNode => {
+        if (textNode.parentNode?.getAttribute('data-tex-processing-node') === 'true') return;
+        let text = textNode.textContent;
+
+        // Mask escaped dollar signs with a unique placeholder
+        const ESCAPED_DOLLAR_PLACEHOLDER = '__ESCAPED_DOLLAR_' + Math.random().toString(36).slice(2) + '__';
+        const hasEscapedDollar = text.includes('\\$');
+        if (hasEscapedDollar) text = text.replace(/\\\$/g, ESCAPED_DOLLAR_PLACEHOLDER);
+
+        const parent = textNode.parentNode;
+
+        // 1) Theorem environments (preserve surrounding text)
+        const ENVIRONMENTS = ['theorem', 'lemma', 'proposition', 'corollary', 'definition'];
+        const envRegex = new RegExp(`\\\\begin\\{(${ENVIRONMENTS.join('|')})\\}(?:\\[([^\\]]+)\\])?([\\s\\S]*?)\\\\end\\{\\1\\}`, 'g');
+        if (envRegex.test(text)) {
+          envRegex.lastIndex = 0;
+          let m, last = 0;
+          const frag = document.createDocumentFragment();
+          while ((m = envRegex.exec(text)) !== null) {
+            if (m.index > last) frag.appendChild(document.createTextNode(text.substring(last, m.index).replace(new RegExp(ESCAPED_DOLLAR_PLACEHOLDER, 'g'), '$')));
+            const el = createTheoremWrapper(m[1], m[2], m[3]);
+            if (el) {
+              frag.appendChild(el);
+              const contentDiv = el.querySelector('.tex-theorem-content');
+              if (contentDiv) detectAndRenderLatex(contentDiv, { oneTimeRender: true });
+            }
+            last = m.index + m[0].length;
+          }
+          if (last < text.length) frag.appendChild(document.createTextNode(text.substring(last).replace(new RegExp(ESCAPED_DOLLAR_PLACEHOLDER, 'g'), '$')));
+          parent.setAttribute('data-tex-processing-node', 'true');
+          parent.insertBefore(frag, textNode);
+          parent.removeChild(textNode);
+          parent.removeAttribute('data-tex-processing-node');
+          hasChanges = true;
+          return; // continue next text node
+        }
+
+        // 2) Display and inline math matches (collect)
+        const matches = [];
+        let match;
+
+        // $$...$$
+        LATEX_PATTERNS.display.lastIndex = 0;
+        while ((match = LATEX_PATTERNS.display.exec(text)) !== null) {
+          matches.push({ type: 'display', start: match.index, end: match.index + match[0].length, latex: (match[1] || '').trim(), full: match[0] });
+        }
+        // \[...\]
+        LATEX_PATTERNS.displayBracket.lastIndex = 0;
+        while ((match = LATEX_PATTERNS.displayBracket.exec(text)) !== null) {
+          matches.push({ type: 'display', start: match.index, end: match.index + match[0].length, latex: (match[1] || '').trim(), full: match[0] });
+        }
+        // $...$
+        LATEX_PATTERNS.inline.lastIndex = 0;
+        while ((match = LATEX_PATTERNS.inline.exec(text)) !== null) {
+          // avoid overlapping display
+          let overlaps = false;
+          for (const d of matches) if (d.type === 'display' && match.index >= d.start && match.index < d.end) { overlaps = true; break; }
+          if (!overlaps) {
+            const full = match[0];
+            if (isCurrency(full)) { continue; } // per-match currency filter
+            matches.push({ type: 'inline', start: match.index, end: match.index + match[0].length, latex: (match[1] || '').trim(), full });
+          }
+        }
+        // \(...\)
+        LATEX_PATTERNS.inlineParenthesis.lastIndex = 0;
+        while ((match = LATEX_PATTERNS.inlineParenthesis.exec(text)) !== null) {
+          let overlaps = false;
+          for (const ex of matches) if (match.index >= ex.start && match.index < ex.end) { overlaps = true; break; }
+          if (!overlaps) matches.push({ type: 'inline', start: match.index, end: match.index + match[0].length, latex: (match[1] || '').trim(), full: match[0] });
+        }
+
+        // 3) Naive TeX (if enabled) and no formal matches
+        if (TeXForGmail.naiveTexMode && matches.length === 0) {
+          const naiveText = detectNaiveTeX(text);
+          if (naiveText) {
+            const naivePatterns = [ /\b([a-zA-Z])\^(\{[^}]+\}|\w+)/g, /\b([a-zA-Z])_(\{[^}]+\}|\w+)/g, /\be\^\(([^)]+)\)/g ];
+            for (const p of naivePatterns) {
+              p.lastIndex = 0;
+              while ((match = p.exec(text)) !== null) {
+                const naive = match[0];
+                matches.push({ type: 'inline', start: match.index, end: match.index + match[0].length, latex: naive, full: naive, isNaive: true });
+              }
+            }
+          }
+        }
+
+        // Nothing matched: possibly restore escaped dollars
+        if (matches.length === 0) {
+          if (hasEscapedDollar) {
+            const restored = text.replace(new RegExp(ESCAPED_DOLLAR_PLACEHOLDER, 'g'), '$');
+            if (restored !== textNode.textContent) { textNode.textContent = restored; hasChanges = true; }
+          }
+          return;
+        }
+
+        // Sort matches and build replacement fragment
+        matches.sort((a, b) => a.start - b.start);
+        const frag = document.createDocumentFragment();
+        let lastIndex = 0;
+        const restoreEscaped = str => hasEscapedDollar ? str.replace(new RegExp(ESCAPED_DOLLAR_PLACEHOLDER, 'g'), '$') : str;
+
+        for (const m of matches) {
+          if (m.start > lastIndex) frag.appendChild(document.createTextNode(restoreEscaped(text.substring(lastIndex, m.start))));
+          let mathElement = null;
+          // Choose rendering mode
+          if ((m.isNaive || TeXForGmail.simpleMode) && (TeXForGmail.settings?.enableSimpleMath)) {
+            mathElement = renderSimpleMath(m.latex, m.type === 'display', opts);
+          } else {
+            // Image-based render with enhanced fallback
+            let imgUrl = null;
+            let fallbackUsed = false;
+            
+            // Try primary server
+            if (TeXForGmail.serverPreference === 'codecogs' && checkServerHealth('codecogs')) {
+              imgUrl = getCodeCogsUrl(m.latex, m.type === 'display');
+            } else if (TeXForGmail.serverPreference === 'wordpress' && checkServerHealth('wordpress')) {
+              imgUrl = getWordPressUrl(m.latex, m.type === 'display');
+            }
+            
+            // If primary server failed, try alternate server
+            if (!imgUrl && TeXForGmail.settings?.serverFallback !== false) {
+              if (TeXForGmail.serverPreference === 'codecogs' && checkServerHealth('wordpress')) {
+                imgUrl = getWordPressUrl(m.latex, m.type === 'display');
+                fallbackUsed = true;
+              } else if (TeXForGmail.serverPreference === 'wordpress' && checkServerHealth('codecogs')) {
+                imgUrl = getCodeCogsUrl(m.latex, m.type === 'display');
+                fallbackUsed = true;
+              }
+            }
+            
+            // If still no URL (rate-limited or validation failed), use Simple Math fallback
+            if (!imgUrl && TeXForGmail.settings?.enableSimpleMath) {
+              mathElement = renderSimpleMath(m.latex, m.type === 'display', opts);
+              if (mathElement) {
+                TeXForGmail.log('Using Simple Math fallback due to server unavailability');
+                // Only show toast occasionally to avoid spam
+                if (Math.random() < 0.1) showToast('Using offline math rendering', 'info');
+              }
+            }
+            
+            // Create image wrapper if we have a URL
+            if (!mathElement && imgUrl) {
+              mathElement = createMathWrapper(m.latex, m.type === 'display', imgUrl);
+              if (fallbackUsed && Math.random() < 0.2) {
+                showToast('Using backup LaTeX server', 'info');
+              }
+            }
+          }
+          frag.appendChild(mathElement || document.createTextNode(restoreEscaped(m.full)));
+          lastIndex = m.end;
+        }
+        if (lastIndex < text.length) frag.appendChild(document.createTextNode(restoreEscaped(text.substring(lastIndex))));
+
+        parent.setAttribute('data-tex-processing-node', 'true');
+        parent.insertBefore(frag, textNode);
+        parent.removeChild(textNode);
+        parent.removeAttribute('data-tex-processing-node');
+        hasChanges = true;
+      });
+
+      return hasChanges;
+    } finally {
+      rootElement.removeAttribute('data-tex-processing');
+    }
+  }
+
+  // === Tree walker to find text nodes eligible for processing ===
   function findTextNodes(element) {
     const textNodes = [];
     const walker = document.createTreeWalker(
@@ -1375,1080 +1341,130 @@
       NodeFilter.SHOW_TEXT,
       {
         acceptNode: function(node) {
-          // Skip if parent is already processed or is a script/style/code/pre element
-          if (node.parentElement?.classList?.contains('tex-math-inline') ||
-              node.parentElement?.classList?.contains('tex-math-display') ||
-              node.parentElement?.classList?.contains('tex-render-error') ||
-              node.parentElement?.getAttribute('data-processed') === 'true' ||
-              node.parentElement?.tagName === 'SCRIPT' ||
-              node.parentElement?.tagName === 'STYLE' ||
-              node.parentElement?.tagName === 'CODE' ||
-              node.parentElement?.tagName === 'PRE') {
+          const p = node.parentElement;
+          if (p?.classList?.contains('tex-math-inline') ||
+              p?.classList?.contains('tex-math-display') ||
+              p?.classList?.contains('tex-render-error') ||
+              p?.getAttribute('data-processed') === 'true' ||
+              p?.tagName === 'SCRIPT' || p?.tagName === 'STYLE' ||
+              p?.tagName === 'CODE' || p?.tagName === 'PRE' || p?.tagName === 'TT') {
             return NodeFilter.FILTER_REJECT;
           }
-          
-          // Skip if this is alt text from a math image
-          if (node.parentElement?.tagName === 'IMG' && 
-              node.parentElement?.alt?.match(/^\$+.*\$+$/)) {
-            return NodeFilter.FILTER_REJECT;
+          if (p?.tagName === 'IMG' && p?.alt?.match(/^\$+.*\$+$/)) return NodeFilter.FILTER_REJECT;
+          let a = p;
+          while (a && a !== element) {
+            if (a.getAttribute('data-tex-processing') === 'true' ||
+                a.tagName === 'CODE' || a.tagName === 'PRE' || a.tagName === 'TT') return NodeFilter.FILTER_REJECT;
+            a = a.parentElement;
           }
-          
-          // Skip if parent or any ancestor is being processed or is a code/pre element
-          let ancestor = node.parentElement;
-          while (ancestor && ancestor !== element) {
-            if (ancestor.getAttribute('data-tex-processing') === 'true' ||
-                ancestor.tagName === 'CODE' ||
-                ancestor.tagName === 'PRE' ||
-                ancestor.tagName === 'TT') {
-              return NodeFilter.FILTER_REJECT;
-            }
-            ancestor = ancestor.parentElement;
-          }
-          
-          // Only process nodes with actual text content
-          if (node.textContent.trim().length > 0) {
-            return NodeFilter.FILTER_ACCEPT;
-          }
+          if ((node.textContent || '').trim().length > 0) return NodeFilter.FILTER_ACCEPT;
           return NodeFilter.FILTER_REJECT;
         }
       }
     );
-
-    let node;
-    while (node = walker.nextNode()) {
-      textNodes.push(node);
-    }
+    let n; while (n = walker.nextNode()) textNodes.push(n);
     return textNodes;
   }
 
-  // Task 3: Create wrapper element for rendered math
-  // Task 1 (Story 2.2): Enhanced with self-documenting attributes
-  function createMathWrapper(latex, isDisplay, imgUrl) {
-    const wrapper = document.createElement('span');
-    wrapper.className = isDisplay ? 'tex-math-display' : 'tex-math-inline';
-    wrapper.setAttribute('data-latex', latex);
-    wrapper.setAttribute('data-processed', 'true');
-    wrapper.setAttribute('data-tex-toggled', 'rendered'); // Task 4 (Story 1.3): Track element state
-    
-    // Add proper styling for inline vs display differentiation
-    if (isDisplay) {
-      wrapper.style.display = 'block';
-      wrapper.style.textAlign = 'center';
-      wrapper.style.margin = '1em 0';
-    } else {
-      wrapper.style.display = 'inline-block';
-      wrapper.style.verticalAlign = 'middle';
-    }
-    
-    const img = document.createElement('img');
-    img.src = imgUrl;
-    
-    // Story 2.2: Self-documenting attributes
-    // Primary source - survives everything including copy/paste
-    img.alt = isDisplay ? `$$${latex}$$` : `$${latex}$`;
-    
-    // User tooltip - helpful hint
-    img.title = `LaTeX: ${img.alt}`;
-    
-    // Task 4 (Story 2.2): Progressive enhancement with dataset support check
-    // Clean source for extension (no delimiters)
-    if ('dataset' in img) {
-      img.setAttribute('data-latex', latex);
-      
-      // Display type
-      img.setAttribute('data-display', isDisplay ? 'block' : 'inline');
-      
-      // Track when rendered
-      img.setAttribute('data-timestamp', Date.now().toString());
-      
-      // Extension version
-      img.setAttribute('data-version', '1.0.0');
-    } else {
-      // Fallback for browsers without dataset support
-      // Store in standard attributes with prefix
-      img.setAttribute('tex-latex', latex);
-      img.setAttribute('tex-display', isDisplay ? 'block' : 'inline');
-      TeXForGmail.log('Using fallback attributes - dataset not supported');
-    }
-    
-    // CSS class for consistent styling
-    img.className = 'tex-rendered';
-    
-    // Prevent cursor issues in Gmail composer
-    img.contentEditable = false;
-    
-    // Consistent styling with proper alignment for inline vs display
-    if (isDisplay) {
-      img.style.display = 'inline-block';
-      img.style.maxWidth = '100%';
-    } else {
-      img.style.verticalAlign = 'middle';
-      img.style.display = 'inline';
-    }
-    img.style.cursor = 'pointer';
-    img.setAttribute('role', 'button');
-    img.setAttribute('aria-label', 'Click to edit LaTeX source');
-    img.setAttribute('tabindex', '0');
-    
-    // Store original source with delimiters for click-to-edit
-    img.setAttribute('data-original-source', isDisplay ? `$$${latex}$$` : `$${latex}$`);
-    
-    // Error handling for image loading with improved user feedback
-    img.onerror = function() {
-      TeXForGmail.log('Error: Failed to load LaTeX image', latex);
-      
-      // Track server failure
-      if (img.src.includes('codecogs.com')) {
-        ServerHealth.codecogs.failures++;
-        TeXForGmail.log('CodeCogs server failure count:', ServerHealth.codecogs.failures);
-      } else if (img.src.includes('wp.com')) {
-        ServerHealth.wordpress.failures++;
-        TeXForGmail.log('WordPress server failure count:', ServerHealth.wordpress.failures);
-      }
-      
-      // Replace with original text on error
-      const sourceText = isDisplay ? `$$${latex}$$` : `$${latex}$`;
-      wrapper.textContent = sourceText;
-      wrapper.classList.add('tex-render-error');
-      wrapper.setAttribute('title', 'Failed to render LaTeX - showing source');
-      // Store the source in localStorage as backup for failed renders
-      try {
-        if (typeof localStorage !== 'undefined' && img.src) {
-          localStorage.setItem(`tex_${img.src}`, sourceText);
-        }
-      } catch (e) {
-        // Silently fail if localStorage is not available
-      }
-    };
-    
-    // Track successful loads to reset failure counts
-    img.onload = function() {
-      if (img.src.includes('codecogs.com')) {
-        ServerHealth.codecogs.failures = 0;
-      } else if (img.src.includes('wp.com')) {
-        ServerHealth.wordpress.failures = 0;
-      }
-    };
-    
-    // Add click-to-edit handler
-    img.addEventListener('click', function(e) {
-      e.preventDefault();
-      e.stopPropagation();
-      
-      // Don't trigger during drag operations
-      if (e.buttons !== 0 && e.buttons !== 1) return;
-      
-      TeXForGmail.handleImageClick(this);
-    });
-    
-    wrapper.appendChild(img);
-    return wrapper;
-  }
-
-  // Handle click on rendered LaTeX image to restore source text
-  TeXForGmail.handleImageClick = function(img) {
-    const wrapper = img.parentElement;
-    const sourceText = img.getAttribute('data-original-source');
-    
-    if (!sourceText) {
-      TeXForGmail.log('Click-to-edit: No source text found');
-      return;
-    }
-    
-    // Create text node with original source
-    const textNode = document.createTextNode(sourceText);
-    wrapper.parentNode.replaceChild(textNode, wrapper);
-    
-    // Position cursor after opening delimiter
-    const range = document.createRange();
-    const delimLength = sourceText.startsWith('$$') ? 2 : 1;
-    range.setStart(textNode, delimLength);
-    range.setEnd(textNode, delimLength);
-    
-    const selection = window.getSelection();
-    selection.removeAllRanges();
-    selection.addRange(range);
-    
-    // Focus the compose area
-    const composeArea = textNode.parentElement;
-    if (composeArea && composeArea.focus) {
-      composeArea.focus();
-    }
-    
-    TeXForGmail.log('Click-to-edit: Restored source text', sourceText);
-  };
-  
-  // Insert LaTeX template at cursor position
-  TeXForGmail.insertTexTemplate = function(template) {
-    const selection = window.getSelection();
-    if (!selection.rangeCount) return false;
-    
-    const range = selection.getRangeAt(0);
-    const container = range.commonAncestorContainer;
-    
-    // Check if we're in a Gmail compose area
-    const composeArea = this.getActiveTarget();
-    if (!composeArea) {
-      TeXForGmail.log('Template insertion: Not in compose area');
-      return false;
-    }
-    
-    // Replace | with empty string for insertion, remember position
-    const cursorPos = template.indexOf('|');
-    const cleanTemplate = template.replace(/\|/g, '');
-    
-    // Insert the template text
-    document.execCommand('insertText', false, cleanTemplate);
-    
-    // Position cursor at the | marker position if present
-    if (cursorPos >= 0) {
-      // Get the updated selection after insertion
-      const newSelection = window.getSelection();
-      if (newSelection.rangeCount) {
-        const newRange = newSelection.getRangeAt(0);
-        const textNode = newRange.startContainer;
-        
-        if (textNode.nodeType === Node.TEXT_NODE) {
-          // Calculate the new cursor position
-          const startOffset = newRange.startOffset - cleanTemplate.length + cursorPos;
-          
-          if (startOffset >= 0 && startOffset <= textNode.textContent.length) {
-            const cursorRange = document.createRange();
-            cursorRange.setStart(textNode, startOffset);
-            cursorRange.setEnd(textNode, startOffset);
-            
-            newSelection.removeAllRanges();
-            newSelection.addRange(cursorRange);
-          }
-        }
-      }
-    }
-    
-    return true;
-  };
-  
-  // Navigate between template placeholders
-  TeXForGmail.navigateTemplate = function(direction) {
-    const selection = window.getSelection();
-    if (!selection.rangeCount) return;
-    
-    const range = selection.getRangeAt(0);
-    const container = range.commonAncestorContainer;
-    
-    if (container.nodeType !== Node.TEXT_NODE) return;
-    
-    const text = container.textContent;
-    const currentPos = range.startOffset;
-    
-    // Find {} pairs as placeholders
-    const placeholders = [];
-    let braceDepth = 0;
-    let placeholderStart = -1;
-    
-    for (let i = 0; i < text.length; i++) {
-      if (text[i] === '{') {
-        if (braceDepth === 0) placeholderStart = i;
-        braceDepth++;
-      } else if (text[i] === '}') {
-        braceDepth--;
-        if (braceDepth === 0 && placeholderStart >= 0) {
-          // Check if placeholder is empty
-          if (i - placeholderStart === 1) {
-            placeholders.push({ start: placeholderStart + 1, end: i });
-          }
-          placeholderStart = -1;
-        }
-      }
-    }
-    
-    if (placeholders.length === 0) return;
-    
-    let targetPlaceholder;
-    if (direction === 'next') {
-      targetPlaceholder = placeholders.find(p => p.start > currentPos);
-      if (!targetPlaceholder) targetPlaceholder = placeholders[0]; // Wrap around
-    } else {
-      targetPlaceholder = placeholders.reverse().find(p => p.start < currentPos);
-      if (!targetPlaceholder) targetPlaceholder = placeholders[placeholders.length - 1]; // Wrap around
-    }
-    
-    if (targetPlaceholder) {
-      const newRange = document.createRange();
-      newRange.setStart(container, targetPlaceholder.start);
-      newRange.setEnd(container, targetPlaceholder.end);
-      selection.removeAllRanges();
-      selection.addRange(newRange);
-    }
-  };
-
-  // Task 2 (Story 2.2): Extract LaTeX source from element with multiple fallbacks
-  // Task 4 (Story 2.2): Enhanced with progressive enhancement support
-  function extractSourceFromElement(element) {
-    // Early return for null/undefined elements
-    if (!element) {
-      TeXForGmail.log('extractSourceFromElement: null element provided');
-      return '[LaTeX source lost]';
-    }
-    
-    // Priority 1: Check data-latex attribute and add appropriate delimiters
-    // Most modern browsers will hit this path for maximum performance
-    if (element.dataset?.latex) {
-      const display = element.dataset.display === 'block' ? '$$' : '$';
-      return `${display}${element.dataset.latex}${display}`;
-    }
-    
-    // Priority 2: Check alt attribute (already has delimiters) - always present as primary fallback
-    // This is the most reliable fallback and should be checked early
-    if (element.alt) {
-      return element.alt;
-    }
-    
-    // Fallback for browsers without dataset support
-    if (element.getAttribute) {
-      const texLatex = element.getAttribute('tex-latex');
-      if (texLatex) {
-        const texDisplay = element.getAttribute('tex-display');
-        const display = texDisplay === 'block' ? '$$' : '$';
-        return `${display}${texLatex}${display}`;
-      }
-    }
-    
-    // Priority 3: Check title attribute and remove "LaTeX: " prefix
-    if (element.title?.startsWith('LaTeX: ')) {
-      return element.title.substring(7);
-    }
-    
-    // Priority 4: Check localStorage (with safe try-catch)
-    // This is expensive so we check it last
-    try {
-      if (typeof localStorage !== 'undefined' && element.src) {
-        const cached = localStorage.getItem(`tex_${element.src}`);
-        if (cached) {
-          TeXForGmail.log('Source recovered from localStorage cache');
-          return cached;
-        }
-      }
-    } catch (e) {
-      // localStorage might not be available or accessible
-      TeXForGmail.log('localStorage not available for source extraction');
-    }
-    
-    // Last resort - source is lost
-    TeXForGmail.log('WARNING: LaTeX source could not be extracted from element');
-    return '[LaTeX source lost]';
-  }
-
-  // Helper function to calculate absolute character offset from start of container
-  function calculateAbsoluteOffset(container, targetNode, targetOffset) {
-    let absoluteOffset = 0;
-    let found = false;
-    
-    function traverse(node) {
-      if (found) return;
-      
-      if (node === targetNode) {
-        if (node.nodeType === Node.TEXT_NODE) {
-          absoluteOffset += targetOffset;
-        } else {
-          // For element nodes, count characters in child nodes up to targetOffset
-          for (let i = 0; i < targetOffset && i < node.childNodes.length; i++) {
-            traverse(node.childNodes[i]);
-          }
-        }
-        found = true;
-        return;
-      }
-      
-      if (node.nodeType === Node.TEXT_NODE) {
-        absoluteOffset += node.textContent.length;
-      } else if (node.nodeType === Node.ELEMENT_NODE) {
-        // Handle special elements
-        if (node.tagName === 'BR') {
-          absoluteOffset += 1; // Count BR as one character
-        } else if (node.classList && (node.classList.contains('tex-math-inline') || 
-                                      node.classList.contains('tex-math-display'))) {
-          // Count rendered math by its LaTeX source length
-          const latex = node.getAttribute('data-latex');
-          if (latex) {
-            const isDisplay = node.classList.contains('tex-math-display');
-            absoluteOffset += (isDisplay ? latex.length + 4 : latex.length + 2); // Include delimiters
-          }
-        } else {
-          // Traverse child nodes
-          for (let i = 0; i < node.childNodes.length; i++) {
-            traverse(node.childNodes[i]);
-            if (found) return;
-          }
-        }
-      }
-    }
-    
-    traverse(container);
-    return absoluteOffset;
-  }
-  
-  // Helper function to find node and offset from absolute position
-  function findNodeAndOffsetFromAbsolute(container, targetOffset) {
-    let currentOffset = 0;
-    let resultNode = null;
-    let resultOffset = 0;
-    
-    function traverse(node) {
-      if (resultNode) return;
-      
-      if (node.nodeType === Node.TEXT_NODE) {
-        const length = node.textContent.length;
-        if (currentOffset + length >= targetOffset) {
-          resultNode = node;
-          resultOffset = targetOffset - currentOffset;
-          return;
-        }
-        currentOffset += length;
-      } else if (node.nodeType === Node.ELEMENT_NODE) {
-        // Handle special elements
-        if (node.tagName === 'BR') {
-          if (currentOffset + 1 >= targetOffset) {
-            // Position cursor before BR
-            resultNode = node.parentNode;
-            const index = Array.from(node.parentNode.childNodes).indexOf(node);
-            resultOffset = index;
-            return;
-          }
-          currentOffset += 1;
-        } else if (node.classList && (node.classList.contains('tex-math-inline') || 
-                                      node.classList.contains('tex-math-display'))) {
-          // Handle rendered math element
-          const latex = node.getAttribute('data-latex');
-          if (latex) {
-            const isDisplay = node.classList.contains('tex-math-display');
-            const totalLength = isDisplay ? latex.length + 4 : latex.length + 2;
-            if (currentOffset + totalLength >= targetOffset) {
-              // Position cursor after the math element
-              resultNode = node.parentNode;
-              const index = Array.from(node.parentNode.childNodes).indexOf(node);
-              resultOffset = index + 1;
-              return;
-            }
-            currentOffset += totalLength;
-          }
-        } else {
-          // Traverse child nodes
-          for (let i = 0; i < node.childNodes.length; i++) {
-            traverse(node.childNodes[i]);
-            if (resultNode) return;
-          }
-        }
-      }
-    }
-    
-    traverse(container);
-    
-    // Fallback: if we couldn't find exact position, position at the end
-    if (!resultNode) {
-      const textNodes = findTextNodes(container);
-      if (textNodes.length > 0) {
-        const lastTextNode = textNodes[textNodes.length - 1];
-        resultNode = lastTextNode;
-        resultOffset = lastTextNode.textContent.length;
-      } else {
-        // Last resort: position at the end of container
-        resultNode = container;
-        resultOffset = container.childNodes.length;
-      }
-    }
-    
-    return { node: resultNode, offset: resultOffset };
-  }
-  
-  // Enhanced cursor preservation with absolute position calculation
-  function preserveCursorPosition(composeArea, callback) {
-    const selection = window.getSelection();
-    let absoluteStartOffset = -1;
-    let absoluteEndOffset = -1;
-    let hasSelection = false;
-    let hasFocus = false;
-    
-    // Check if the compose area has focus
-    hasFocus = composeArea.contains(document.activeElement) || composeArea === document.activeElement;
-    
-    if (selection.rangeCount > 0 && hasFocus) {
-      const range = selection.getRangeAt(0);
-      // Only preserve if cursor is within the compose area
-      if (composeArea.contains(range.startContainer) && composeArea.contains(range.endContainer)) {
-        // Calculate absolute positions
-        absoluteStartOffset = calculateAbsoluteOffset(composeArea, range.startContainer, range.startOffset);
-        absoluteEndOffset = calculateAbsoluteOffset(composeArea, range.endContainer, range.endOffset);
-        hasSelection = !range.collapsed;
-      }
-    }
-    
-    const result = callback();
-    
-    // Restore cursor/selection using absolute positions
-    if (absoluteStartOffset >= 0 && hasFocus) {
-      try {
-        const startPosition = findNodeAndOffsetFromAbsolute(composeArea, absoluteStartOffset);
-        const newRange = document.createRange();
-        
-        // Set start position
-        if (startPosition.node) {
-          // Validate offset for the node type
-          const maxOffset = startPosition.node.nodeType === Node.TEXT_NODE
-            ? startPosition.node.textContent.length
-            : startPosition.node.childNodes.length;
-          newRange.setStart(startPosition.node, Math.min(startPosition.offset, maxOffset));
-          
-          // Set end position if there was a selection
-          if (hasSelection && absoluteEndOffset >= 0) {
-            const endPosition = findNodeAndOffsetFromAbsolute(composeArea, absoluteEndOffset);
-            if (endPosition.node) {
-              const maxEndOffset = endPosition.node.nodeType === Node.TEXT_NODE
-                ? endPosition.node.textContent.length
-                : endPosition.node.childNodes.length;
-              newRange.setEnd(endPosition.node, Math.min(endPosition.offset, maxEndOffset));
-            } else {
-              newRange.collapse(true);
-            }
-          } else {
-            newRange.collapse(true);
-          }
-          
-          selection.removeAllRanges();
-          selection.addRange(newRange);
-          
-          // Refocus the compose area if needed
-          if (document.activeElement !== composeArea) {
-            composeArea.focus();
-          }
-        }
-      } catch (e) {
-        TeXForGmail.log('Could not restore cursor position:', e);
-        // Fallback: try to at least focus the compose area
-        if (document.activeElement !== composeArea) {
-          try {
-            composeArea.focus();
-          } catch (focusError) {
-            TeXForGmail.log('Could not focus compose area:', focusError);
-          }
-        }
-      }
-    }
-    
-    return result;
-  }
-
-  // Task 3, 5: Main rendering function with double-render prevention
-  function detectAndRenderLatex(composeArea, options = {}) {
-    // Allow call without explicit target: fall back to detected compose area (test harness convenience)
-    if (!composeArea) {
-      composeArea = findComposeArea();
-      if (!composeArea) return false;
-    }
-    
-    const { oneTimeRender = false, isReadMode = false } = options;
-    
-    // Skip concurrent processing check for read mode
-    if (!isReadMode && composeArea.getAttribute('data-tex-processing') === 'true') {
-      TeXForGmail.log('Already processing this compose area, skipping');
-      return false;
-    }
-    
-    // Task 4 (Story 1.3): Check toggle state before rendering (skip for one-time renders)
-    const isRenderingEnabled = oneTimeRender ? 'api' : getToggleState(composeArea);
-    if (!isRenderingEnabled) {
-      TeXForGmail.log('Rendering disabled by toggle, skipping');
-      return false;
-    }
-    
-    // Set processing flag
-    composeArea.setAttribute('data-tex-processing', 'true');
-    
-    // Store original content for read mode (to allow restoration)
-    if (isReadMode && !TeXForGmail.originalContent.has(composeArea)) {
-      TeXForGmail.originalContent.set(composeArea, composeArea.innerHTML);
-      TeXForGmail.log('Stored original content for read mode');
-    }
-    
-    try {
-      const textNodes = findTextNodes(composeArea);
-      let hasChanges = false;
-
-      textNodes.forEach(textNode => {
-        // Skip if parent was marked as processed during this render cycle
-        if (textNode.parentNode?.getAttribute('data-tex-processing-node') === 'true') {
-          return;
-        }
-        
-        let text = textNode.textContent;
-        
-        // Skip if it looks like currency
-        if (isCurrency(text)) {
-          return;
-        }
-        
-        // Skip if this is alt text from existing math image
-        if (text.match(/^\$+.*\$+$/) && textNode.parentNode?.querySelector('img[alt*="$"]')) {
-          return;
-        }
-        
-        // Task 7 (Story 3.2): Handle escaped dollar signs by masking them
-        // This preserves literal \$ while allowing other LaTeX patterns to work
-        const ESCAPED_DOLLAR_PLACEHOLDER = '__ESCAPED_DOLLAR_SIGN__';
-        const hasEscapedDollar = text.includes('\\$');
-        if (hasEscapedDollar) {
-          // Temporarily replace escaped dollar signs with placeholder
-          text = text.replace(/\\\$/g, ESCAPED_DOLLAR_PLACEHOLDER);
-        }
-
-        // Check for theorem environments first
-        if (detectTheoremEnvironments(text)) {
-          // Environment types that are supported
-          const ENVIRONMENTS = ['theorem', 'lemma', 'proposition', 'corollary', 'definition'];
-          const envPattern = ENVIRONMENTS.join('|');
-          const regex = new RegExp(
-            `\\\\begin\\{(${envPattern})\\}(?:\\[([^\\]]+)\\])?([\\s\\S]*?)\\\\end\\{\\1\\}`,
-            'g'
-          );
-          
-          let envMatch;
-          while ((envMatch = regex.exec(text)) !== null) {
-            const [fullMatch, envType, colorArg, content] = envMatch;
-            const theoremElement = createTheoremWrapper(envType, colorArg, content);
-            
-            // Skip if wrapper creation failed (e.g., content too long)
-            if (!theoremElement) {
-              continue;
-            }
-            
-            // Replace the text node with the theorem element
-            const parent = textNode.parentNode;
-            parent.insertBefore(theoremElement, textNode);
-            
-            // Process the content inside the theorem for LaTeX
-            const contentDiv = theoremElement.querySelector('.tex-theorem-content');
-            if (contentDiv) {
-              // Recursively process LaTeX in the theorem content
-              detectAndRenderLatex(contentDiv);
-            }
-            
-            // Mark as processed
-            parent.setAttribute('data-tex-processing-node', 'true');
-            hasChanges = true;
-          }
-          
-          // Remove the original text node if we processed theorem environments
-          if (hasChanges) {
-            textNode.remove();
-            return;
-          }
-        }
-
-        // Process both display and inline math in a single pass
-        const matches = [];
-        let match;
-        
-        // Find all display math matches - $$ patterns
-        LATEX_PATTERNS.display.lastIndex = 0;
-        while ((match = LATEX_PATTERNS.display.exec(text)) !== null) {
-          // Skip if LaTeX has trailing/leading spaces
-          if (match[1].trim() !== match[1]) {
-            continue;
-          }
-          matches.push({
-            type: 'display',
-            start: match.index,
-            end: match.index + match[0].length,
-            latex: match[1],
-            full: match[0]
-          });
-        }
-        
-        // Find all display math matches - \[...\] patterns
-        LATEX_PATTERNS.displayBracket.lastIndex = 0;
-        while ((match = LATEX_PATTERNS.displayBracket.exec(text)) !== null) {
-          // Skip if LaTeX has trailing/leading spaces
-          if (match[1].trim() !== match[1]) {
-            continue;
-          }
-          matches.push({
-            type: 'display',
-            start: match.index,
-            end: match.index + match[0].length,
-            latex: match[1],
-            full: match[0]
-          });
-        }
-        
-        // Find all inline math matches - $ patterns
-        LATEX_PATTERNS.inline.lastIndex = 0;
-        while ((match = LATEX_PATTERNS.inline.exec(text)) !== null) {
-          // Check if this overlaps with any display math
-          let overlaps = false;
-          for (const displayMatch of matches) {
-            if (displayMatch.type === 'display' && 
-                match.index >= displayMatch.start && 
-                match.index < displayMatch.end) {
-              overlaps = true;
-              break;
-            }
-          }
-          
-          if (!overlaps) {
-            // Skip if LaTeX has trailing/leading spaces
-            if (match[1].trim() !== match[1]) {
-              continue;
-            }
-            // Skip if this individual match looks like currency (e.g., $50, $19.99)
-            // But allow math with operators (e.g., $1 + 1 = 2$)
-            if (isCurrency(match[0])) {
-              continue;
-            }
-            matches.push({
-              type: 'inline',
-              start: match.index,
-              end: match.index + match[0].length,
-              latex: match[1],
-              full: match[0]
-            });
-          }
-        }
-        
-        // Find all inline math matches - \(...\) patterns
-        LATEX_PATTERNS.inlineParenthesis.lastIndex = 0;
-        while ((match = LATEX_PATTERNS.inlineParenthesis.exec(text)) !== null) {
-          // Check if this overlaps with any existing math
-          let overlaps = false;
-          for (const existingMatch of matches) {
-            if (match.index >= existingMatch.start && 
-                match.index < existingMatch.end) {
-              overlaps = true;
-              break;
-            }
-          }
-          
-          if (!overlaps) {
-            // Skip if LaTeX has trailing/leading spaces
-            if (match[1].trim() !== match[1]) {
-              continue;
-            }
-            matches.push({
-              type: 'inline',
-              start: match.index,
-              end: match.index + match[0].length,
-              latex: match[1],
-              full: match[0]
-            });
-          }
-        }
-        
-        // Check for naive TeX patterns if enabled and no formal LaTeX found
-        if (TeXForGmail.naiveTexMode && matches.length === 0) {
-          const naiveText = detectNaiveTeX(text);
-          if (naiveText) {
-            // Process naive TeX patterns
-            const naivePatterns = [
-              /\b([a-zA-Z])\^(\{[^}]+\}|\w+)/g,  // x^2 or x^{10}
-              /\b([a-zA-Z])_(\{[^}]+\}|\w+)/g,   // a_n or a_{10}
-              /\be\^\(([^)]+)\)/g,                // e^(i*pi)
-            ];
-            
-            for (const pattern of naivePatterns) {
-              pattern.lastIndex = 0;
-              while ((match = pattern.exec(text)) !== null) {
-                const naiveLatex = match[0];
-                matches.push({
-                  type: 'inline',
-                  start: match.index,
-                  end: match.index + match[0].length,
-                  latex: naiveLatex,
-                  full: naiveLatex,
-                  isNaive: true
-                });
-              }
-            }
-          }
-        }
-        
-        // Sort matches by position
-        matches.sort((a, b) => a.start - b.start);
-        
-        // Process matches if any found
-        if (matches.length > 0) {
-          const newNodes = [];
-          let lastIndex = 0;
-          
-          // Helper to restore escaped dollar signs
-          const restoreEscapedDollar = (str) => {
-            if (hasEscapedDollar) {
-              // In text content, \$ should be displayed as just $
-              return str.replace(new RegExp(ESCAPED_DOLLAR_PLACEHOLDER, 'g'), '$');
-            }
-            return str;
-          };
-          
-          for (const match of matches) {
-            // Add text before the match
-            if (match.start > lastIndex) {
-              const textBefore = text.substring(lastIndex, match.start);
-              newNodes.push(document.createTextNode(restoreEscapedDollar(textBefore)));
-            }
-            
-            // Create and add math element based on mode
-            let mathElement = null;
-            
-            // Check if this is a naive TeX match or we should use Simple Math mode
-            if ((match.isNaive || TeXForGmail.simpleMode) && (TeXForGmail.settings?.enableSimpleMath)) {
-              mathElement = renderSimpleMath(match.latex, match.type === 'display');
-            } else {
-              // Use image-based rendering with server selection
-              let imgUrl = null;
-              
-              // Try primary server
-              if (TeXForGmail.serverPreference === 'codecogs' && checkServerHealth('codecogs')) {
-                imgUrl = getCodeCogsUrl(match.latex, match.type === 'display');
-              } else if (TeXForGmail.serverPreference === 'wordpress' && checkServerHealth('wordpress')) {
-                imgUrl = getWordPressUrl(match.latex);
-              }
-              
-              // Fallback logic if primary server fails
-              if (!imgUrl) {
-                if (TeXForGmail.serverPreference === 'codecogs' && checkServerHealth('wordpress')) {
-                  // Fallback to WordPress
-                  if (switchServerSafely('wordpress', 'CodeCogs server failed')) {
-                    imgUrl = getWordPressUrl(match.latex);
-                  }
-                } else if (TeXForGmail.serverPreference === 'wordpress' && checkServerHealth('codecogs')) {
-                  // Fallback to CodeCogs
-                  if (switchServerSafely('codecogs', 'WordPress server recovered')) {
-                    imgUrl = getCodeCogsUrl(match.latex, match.type === 'display');
-                  }
-                }
-                
-                // If still no URL, both servers failed or switching was blocked
-                if (!imgUrl) {
-                  // Use Simple Math mode as last resort
-                  mathElement = renderSimpleMath(match.latex, match.type === 'display');
-                  if (mathElement) {
-                    showToast('Using offline math rendering', 'info');
-                  }
-                }
-              }
-              
-              if (imgUrl && !mathElement) {
-                mathElement = createMathWrapper(match.latex, match.type === 'display', imgUrl);
-              }
-            }
-            
-            if (mathElement) {
-              newNodes.push(mathElement);
-            } else {
-              // Keep original text if all rendering methods fail
-              // Note: match.full shouldn't have placeholders since it's from the original pattern
-              newNodes.push(document.createTextNode(match.full));
-            }
-            
-            lastIndex = match.end;
-          }
-          
-          // Add remaining text after last match
-          if (lastIndex < text.length) {
-            const remainingText = text.substring(lastIndex);
-            newNodes.push(document.createTextNode(restoreEscapedDollar(remainingText)));
-          }
-          
-          // Mark parent as being processed to prevent double processing
-          const parent = textNode.parentNode;
-          parent.setAttribute('data-tex-processing-node', 'true');
-          
-          // Replace the text node with new nodes
-          newNodes.forEach(node => {
-            parent.insertBefore(node, textNode);
-          });
-          parent.removeChild(textNode);
-          
-          // Clear the processing flag on parent node
-          parent.removeAttribute('data-tex-processing-node');
-          
-          hasChanges = true;
-        } else if (hasEscapedDollar) {
-          // No LaTeX patterns found, but we need to restore escaped dollar signs
-          // In text content, \$ should be displayed as just $
-          const restoredText = text.replace(new RegExp(ESCAPED_DOLLAR_PLACEHOLDER, 'g'), '$');
-          if (restoredText !== textNode.textContent) {
-            textNode.textContent = restoredText;
-            hasChanges = true;
-          }
-        }
-      });
-
-      return hasChanges;
-    } finally {
-      // Always clear processing flag
-      composeArea.removeAttribute('data-tex-processing');
-    }
-  }
-
-  // Task 3: Debounced render function with processing flag management
+  // === Debounced render scheduler ===
   function scheduleRender(composeArea) {
-    // Check if already processing
     if (composeArea.getAttribute('data-tex-render-scheduled') === 'true') {
-      TeXForGmail.log('Render already scheduled for this compose area');
-      return;
+      TeXForGmail.log('Render already scheduled for this compose area'); return;
     }
-    
     const existingTimeout = TeXForGmail.renderTimeouts.get(composeArea);
-    if (existingTimeout) {
-      clearTimeout(existingTimeout);
-    }
-    
-    // Mark as scheduled
+    if (existingTimeout) clearTimeout(existingTimeout);
     composeArea.setAttribute('data-tex-render-scheduled', 'true');
-    
-    const newTimeout = setTimeout(() => {
-      // Clear scheduled flag
+    const to = setTimeout(() => {
       composeArea.removeAttribute('data-tex-render-scheduled');
-      
-      // DO NOT update saved content - we want to keep the original clean version
-      // The saved content should only be set ONCE when first enabling LaTeX
-      
-      // Only preserve cursor if compose area has focus
       if (composeArea.contains(document.activeElement) || composeArea === document.activeElement) {
-        preserveCursorPosition(composeArea, () => {
-          detectAndRenderLatex(composeArea);
-        });
+        preserveCursorPosition(composeArea, () => { detectAndRenderLatex(composeArea); });
       } else {
-        // No focus, just render without cursor preservation
         detectAndRenderLatex(composeArea);
       }
       TeXForGmail.renderTimeouts.delete(composeArea);
     }, CONFIG.renderDebounceDelay);
-    
-    TeXForGmail.renderTimeouts.set(composeArea, newTimeout);
+    TeXForGmail.renderTimeouts.set(composeArea, to);
   }
 
-  // Debounce utility function
+  // === Debounce utility ===
   function debounce(func, delay) {
-    let timeoutId;
-    return function(...args) {
-      clearTimeout(timeoutId);
-      timeoutId = setTimeout(() => func.apply(this, args), delay);
-    };
+    let id;
+    return function(...args) { clearTimeout(id); id = setTimeout(() => func.apply(this, args), delay); };
   }
 
-  // Create and show toast notification
+  // === Toasts & a11y ===
+  // Toast spam control - track last toast time and message
+  let lastToastTime = 0;
+  let lastToastMessage = '';
+  const TOAST_COOLDOWN = 500; // Minimum 500ms between toasts
+  
   function showToast(message, type = 'info') {
-    const existingToast = document.querySelector('.tex-toast');
-    if (existingToast) {
-      existingToast.remove();
+    const now = Date.now();
+    // Prevent toast spam - skip if same message shown recently
+    if (message === lastToastMessage && (now - lastToastTime) < TOAST_COOLDOWN) {
+      return;
     }
-
+    lastToastTime = now;
+    lastToastMessage = message;
+    
+    const existing = document.querySelector('.tex-toast'); if (existing) existing.remove();
     const toast = document.createElement('div');
     toast.className = `tex-toast tex-toast-${type}`;
     toast.textContent = message;
     toast.style.cssText = `
-      position: fixed;
-      bottom: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: ${type === 'error' ? '#f44336' : '#333'};
-      color: white;
-      padding: 12px 24px;
-      border-radius: 4px;
-      z-index: 10000;
-      opacity: 0;
-      transition: opacity 0.3s;
-    `;
-
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      background: ${type === 'error' ? '#f44336' : (type === 'warning' ? '#ff9800' : '#333')};
+      color: white; padding: 12px 24px; border-radius: 4px; z-index: 10000; opacity: 0; transition: opacity 0.3s;`;
     document.body.appendChild(toast);
-    
-    // Trigger animation
-    requestAnimationFrame(() => {
-      toast.style.opacity = '1';
-    });
-
-    setTimeout(() => {
-      toast.style.opacity = '0';
-      setTimeout(() => toast.remove(), 300);
-    }, CONFIG.toastDuration);
+    requestAnimationFrame(() => { toast.style.opacity = '1'; });
+    setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, CONFIG.toastDuration);
   }
 
-  // Ensure aria-live regions exist for announcements in Gmail pages
   function ensureLiveRegions() {
     if (!document.getElementById('tex-live-status')) {
-      const status = document.createElement('div');
-      status.id = 'tex-live-status';
-      status.setAttribute('role', 'status');
-      status.setAttribute('aria-live', 'polite');
-      status.setAttribute('aria-atomic', 'true');
+      const status = document.createElement('div'); status.id = 'tex-live-status'; status.setAttribute('role', 'status');
+      status.setAttribute('aria-live', 'polite'); status.setAttribute('aria-atomic', 'true');
       status.style.cssText = 'position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden;';
       document.body.appendChild(status);
     }
     if (!document.getElementById('tex-live-alert')) {
-      const alert = document.createElement('div');
-      alert.id = 'tex-live-alert';
-      alert.setAttribute('role', 'alert');
-      alert.setAttribute('aria-live', 'assertive');
-      alert.setAttribute('aria-atomic', 'true');
+      const alert = document.createElement('div'); alert.id = 'tex-live-alert'; alert.setAttribute('role', 'alert');
+      alert.setAttribute('aria-live', 'assertive'); alert.setAttribute('aria-atomic', 'true');
       alert.style.cssText = 'position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden;';
       document.body.appendChild(alert);
     }
   }
-
-  // Announce a message via aria-live regions
   function announce(message, priority = 'polite') {
     const id = priority === 'assertive' ? 'tex-live-alert' : 'tex-live-status';
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.textContent = '';
-    // Force reflow to ensure SR announces repeated messages
-    void el.offsetHeight;
-    el.textContent = message;
+    const el = document.getElementById(id); if (!el) return;
+    el.textContent = ''; void el.offsetHeight; el.textContent = message;
   }
 
-  // Get original LaTeX for a wrapper/image with precedence rules
-  // QA 4.5: Robust fallback when wrapper classes are missing
+  // === Get original LaTeX for wrapper/image ===
   TeXForGmail.getOriginalLatex = function(node) {
     if (!node) return null;
-    const isElement = node && node.nodeType === 1; // ELEMENT_NODE
-
-    // Helper: determine if an <img> looks like a math image
+    const isElement = node && node.nodeType === 1;
     const isMathImage = (img) => {
       if (!img || img.tagName !== 'IMG') return false;
       if (img.getAttribute('data-original-source')) return true;
       const alt = img.alt || '';
       return /(\$\$[^$]+\$\$|\$[^$]+\$|\\\([^)*]+\\\)|\\\[[^\]]+\\\])/.test(alt);
     };
-
-    // Try to find a known wrapper first
-    const wrapper = (isElement && node.closest)
-      ? node.closest('.tex-math-inline, .tex-math-display')
-      : null;
-
-    // Resolve candidate image (from wrapper or node itself/ancestors)
+    const wrapper = (isElement && node.closest) ? node.closest('.tex-math-inline, .tex-math-display') : null;
     let img = null;
-    if (wrapper) {
-      img = wrapper.querySelector('img');
-    }
+    if (wrapper) img = wrapper.querySelector('img');
     if (!img && isElement) {
-      if (node.tagName === 'IMG' && isMathImage(node)) {
-        img = node;
-      } else if (node.closest) {
-        const maybeImg = node.closest('img');
-        if (isMathImage(maybeImg)) img = maybeImg;
+      if (node.tagName === 'IMG' && isMathImage(node)) img = node;
+      else if (node.closest) {
+        const maybeImg = node.closest('img'); if (isMathImage(maybeImg)) img = maybeImg;
       }
       if (!img && node.querySelector) {
-        const nested = node.querySelector('img');
-        if (isMathImage(nested)) img = nested;
+        const nested = node.querySelector('img'); if (isMathImage(nested)) img = nested;
       }
     }
-
-    // Precedence 1: image data-original-source
     if (img) {
-      const original = img.getAttribute('data-original-source');
-      if (original) return original;
+      const original = img.getAttribute('data-original-source'); if (original) return original;
     }
-
-    // Precedence 2: wrapper data-latex with delimiters (only if wrapper known)
     if (wrapper) {
       const latex = wrapper.getAttribute('data-latex');
       if (latex) {
@@ -2456,280 +1472,153 @@
         return isDisplay ? `$$${latex}$$` : `$${latex}$`;
       }
     }
-
-    // Precedence 3: image alt text (already includes delimiters)
     if (img && img.alt) return img.alt;
-
-    // Precedence 4: any ancestor with data-latex even without wrapper class
     if (isElement && node.closest) {
       const anyLatex = node.closest('[data-latex]');
       if (anyLatex && anyLatex.getAttribute) {
         const raw = anyLatex.getAttribute('data-latex');
-        // Attempt display hint if available
         const displayHint = anyLatex.getAttribute('data-display');
         const isDisplay = displayHint === 'true' || displayHint === 'block' || anyLatex.classList?.contains('tex-math-display');
         return isDisplay ? `$$${raw}$$` : `$${raw}$`;
       }
     }
-
     return null;
   };
 
-  // Copy to clipboard with Clipboard API and fallback
+  // === Clipboard helpers & Copy UI ===
   async function copyTextToClipboard(text) {
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(text);
-        return true;
-      }
-    } catch (e) {
-      // Fallback below
-    }
+    try { if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return true; } } catch (_) {}
     try {
       const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.setAttribute('readonly', '');
-      ta.style.position = 'fixed';
-      ta.style.top = '-1000px';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.focus();
-      ta.select();
-      const ok = document.execCommand('copy');
-      ta.remove();
-      return ok;
-    } catch (e) {
-      return false;
-    }
+      ta.value = text; ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed'; ta.style.top = '-1000px'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.focus(); ta.select();
+      // execCommand is deprecated but still required for clipboard in some contexts
+      const ok = document.execCommand('copy'); ta.remove(); return ok;
+    } catch (_) { return false; }
   }
-
-  // Single reusable UI elements for Copy LaTeX feature
   TeXForGmail.copyUI = { button: null, menu: null, currentWrapper: null, hideTimer: null };
-
   function createCopyButton() {
     if (TeXForGmail.copyUI.button) return TeXForGmail.copyUI.button;
     const btn = document.createElement('button');
-    btn.className = 'tex-copy-button';
-    btn.type = 'button';
-    btn.textContent = 'Copy LaTeX';
+    btn.className = 'tex-copy-button'; btn.type = 'button'; btn.textContent = 'Copy LaTeX';
     btn.setAttribute('aria-label', 'Copy LaTeX');
-    // Ensure usable positioning even if stylesheet isn't loaded (test harness)
-    btn.style.position = btn.style.position || 'absolute';
-    btn.style.top = btn.style.top || '2px';
-    btn.style.right = btn.style.right || '2px';
-    btn.style.display = 'none';
+    btn.style.position = btn.style.position || 'absolute'; btn.style.top = btn.style.top || '2px'; btn.style.right = btn.style.right || '2px'; btn.style.display = 'none';
     btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      e.preventDefault();
+      e.stopPropagation(); e.preventDefault();
       const wrapper = TeXForGmail.copyUI.currentWrapper || btn.closest('.tex-math-inline, .tex-math-display');
       const source = TeXForGmail.getOriginalLatex(wrapper);
-      if (!source) {
-        showToast('Could not find LaTeX source', 'error');
-        announce('Copy failed: no LaTeX source found', 'assertive');
-        return;
-      }
+      if (!source) { showToast('Could not find LaTeX source', 'error'); announce('Copy failed: no LaTeX source found', 'assertive'); return; }
       const ok = await copyTextToClipboard(source);
-      if (ok) {
-        showToast('LaTeX copied to clipboard', 'info');
-        announce('LaTeX copied to clipboard', 'polite');
-      } else {
-        showToast('Copy to clipboard failed', 'error');
-        announce('Copy to clipboard failed', 'assertive');
-      }
+      if (ok) { showToast('LaTeX copied to clipboard', 'info'); announce('LaTeX copied to clipboard', 'polite'); }
+      else { showToast('Copy to clipboard failed', 'error'); announce('Copy to clipboard failed', 'assertive'); }
     });
-    TeXForGmail.copyUI.button = btn;
-    return btn;
+    TeXForGmail.copyUI.button = btn; return btn;
   }
-
   function showCopyButton(wrapper) {
     if (!wrapper || !wrapper.isConnected) return;
     const settings = TeXForGmail.settings || {};
     if (settings.showCopyLatex === false) return;
     const btn = createCopyButton();
     TeXForGmail.copyUI.currentWrapper = wrapper;
-    // Ensure wrapper is positioning context
     const cs = window.getComputedStyle(wrapper);
-    if (!['relative','absolute','fixed','sticky'].includes(cs.position)) {
-      wrapper.style.position = 'relative';
-    }
-    if (btn.parentElement !== wrapper) {
-      // Remove from previous parent if any
-      if (btn.parentElement && btn.parentElement.contains(btn)) btn.parentElement.removeChild(btn);
-      wrapper.appendChild(btn);
-    }
+    if (!['relative','absolute','fixed','sticky'].includes(cs.position)) wrapper.style.position = 'relative';
+    if (btn.parentElement !== wrapper) { if (btn.parentElement?.contains(btn)) btn.parentElement.removeChild(btn); wrapper.appendChild(btn); }
     btn.style.display = 'inline-flex';
   }
-
   function hideCopyButton() {
     const btn = TeXForGmail.copyUI.button;
-    if (btn) {
-      btn.style.display = 'none';
-      TeXForGmail.copyUI.currentWrapper = null;
-    }
+    if (btn) { btn.style.display = 'none'; TeXForGmail.copyUI.currentWrapper = null; }
   }
-
   function ensureCopyInteractions() {
-    // Hover/focus handlers (delegated)
     document.addEventListener('mouseover', (e) => {
-      const targetWrapper = e.target && (e.target.closest && e.target.closest('.tex-math-inline, .tex-math-display'));
-      if (targetWrapper) {
-        showCopyButton(targetWrapper);
-      } else if (!document.activeElement || !document.activeElement.closest('.tex-math-inline, .tex-math-display')) {
-        hideCopyButton();
-      }
+      const targetWrapper = e.target?.closest?.('.tex-math-inline, .tex-math-display');
+      if (targetWrapper) showCopyButton(targetWrapper);
+      else if (!document.activeElement || !document.activeElement.closest('.tex-math-inline, .tex-math-display')) hideCopyButton();
     }, true);
     document.addEventListener('focusin', (e) => {
-      const targetWrapper = e.target && (e.target.closest && e.target.closest('.tex-math-inline, .tex-math-display'));
-      if (targetWrapper) {
-        showCopyButton(targetWrapper);
-      }
+      const targetWrapper = e.target?.closest?.('.tex-math-inline, .tex-math-display');
+      if (targetWrapper) showCopyButton(targetWrapper);
     }, true);
   }
-
-  // Minimal custom context menu for Copy LaTeX
   function createCopyMenu() {
     if (TeXForGmail.copyUI.menu) return TeXForGmail.copyUI.menu;
     const menu = document.createElement('div');
-    menu.className = 'tex-copy-menu';
-    menu.setAttribute('role', 'menu');
-    // Base styles so it works without external CSS (test harness)
-    menu.style.position = 'fixed';
-    menu.style.zIndex = '10001';
-    menu.style.background = '#fff';
-    menu.style.color = '#202124';
-    menu.style.border = '1px solid #dadce0';
-    menu.style.borderRadius = '4px';
-    menu.style.minWidth = '140px';
-    menu.style.display = 'none';
-    const item = document.createElement('div');
-    item.className = 'tex-copy-menuitem';
-    item.setAttribute('role', 'menuitem');
-    item.tabIndex = 0;
-    item.textContent = 'Copy LaTeX';
-    // Minimal item styling for usability without stylesheet
-    item.style.padding = '8px 12px';
-    item.style.cursor = 'pointer';
+    menu.className = 'tex-copy-menu'; menu.setAttribute('role', 'menu');
+    menu.style.position = 'fixed'; menu.style.zIndex = '10001'; menu.style.background = '#fff'; menu.style.color = '#202124';
+    menu.style.border = '1px solid #dadce0'; menu.style.borderRadius = '4px'; menu.style.minWidth = '140px'; menu.style.display = 'none';
+    const item = document.createElement('div'); item.className = 'tex-copy-menuitem'; item.setAttribute('role', 'menuitem'); item.tabIndex = 0; item.textContent = 'Copy LaTeX';
+    item.style.padding = '8px 12px'; item.style.cursor = 'pointer';
     item.addEventListener('mouseover', () => { item.style.background = '#e8f0fe'; });
     item.addEventListener('mouseout', () => { item.style.background = ''; });
     item.addEventListener('click', async (e) => {
       e.stopPropagation();
-      // Use the stored context target from the menu, fallback to currentWrapper
-      const menu = TeXForGmail.copyUI.menu;
       const target = (menu && menu._contextTarget) || TeXForGmail.copyUI.currentWrapper;
       const source = TeXForGmail.getOriginalLatex(target);
-      if (!source) {
-        showToast('Could not find LaTeX source', 'error');
-        announce('Copy failed: no LaTeX source found', 'assertive');
-        return closeCopyMenu();
-      }
+      if (!source) { showToast('Could not find LaTeX source', 'error'); announce('Copy failed: no LaTeX source found', 'assertive'); return closeCopyMenu(); }
       const ok = await copyTextToClipboard(source);
-      if (ok) {
-        showToast('LaTeX copied to clipboard', 'info');
-        announce('LaTeX copied to clipboard', 'polite');
-      } else {
-        showToast('Copy to clipboard failed', 'error');
-        announce('Copy to clipboard failed', 'assertive');
-      }
+      if (ok) { showToast('LaTeX copied to clipboard', 'info'); announce('LaTeX copied to clipboard', 'polite'); }
+      else { showToast('Copy to clipboard failed', 'error'); announce('Copy to clipboard failed', 'assertive'); }
       closeCopyMenu();
     });
-    menu.appendChild(item);
-    document.body.appendChild(menu);
-    TeXForGmail.copyUI.menu = menu;
-    return menu;
+    menu.appendChild(item); document.body.appendChild(menu);
+    TeXForGmail.copyUI.menu = menu; return menu;
   }
-
   function openCopyMenu(x, y, wrapper) {
     const settings = TeXForGmail.settings || {};
     if (settings.showCopyLatex === false) return;
     const menu = createCopyMenu();
-    // Store the target element directly on the menu for context menu operations
-    // This prevents loss of target if currentWrapper gets cleared
     menu._contextTarget = wrapper;
     TeXForGmail.copyUI.currentWrapper = wrapper;
-    menu.style.display = 'block';
-    menu.style.left = `${x}px`;
-    menu.style.top = `${y}px`;
-    // Focus first item for keyboard navigation
+    menu.style.display = 'block'; menu.style.left = `${x}px`; menu.style.top = `${y}px`;
     menu.querySelector('[role="menuitem"]').focus();
-    const onDocClick = (ev) => {
-      if (!menu.contains(ev.target)) closeCopyMenu();
-    };
+    const onDocClick = (ev) => { if (!menu.contains(ev.target)) closeCopyMenu(); };
     const onKey = (ev) => {
-      if (ev.key === 'Escape') {
-        ev.preventDefault();
-        closeCopyMenu();
-      } else if (ev.key === 'Enter' || ev.key === ' ') {
-        const focused = document.activeElement;
-        if (menu.contains(focused)) focused.click();
+      if (ev.key === 'Escape') { ev.preventDefault(); closeCopyMenu(); }
+      else if (ev.key === 'Enter' || ev.key === ' ') {
+        const focused = document.activeElement; if (menu.contains(focused)) focused.click();
       }
     };
-    // Store handlers for cleanup
-    menu._onDocClick = onDocClick;
-    menu._onKey = onKey;
-    setTimeout(() => {
-      document.addEventListener('click', onDocClick, true);
-      document.addEventListener('keydown', onKey, true);
-    }, 0);
+    menu._onDocClick = onDocClick; menu._onKey = onKey;
+    setTimeout(() => { document.addEventListener('click', onDocClick, true); document.addEventListener('keydown', onKey, true); }, 0);
   }
-
   function closeCopyMenu() {
-    const menu = TeXForGmail.copyUI.menu;
-    if (!menu) return;
+    const menu = TeXForGmail.copyUI.menu; if (!menu) return;
     menu.style.display = 'none';
     if (menu._onDocClick) document.removeEventListener('click', menu._onDocClick, true);
     if (menu._onKey) document.removeEventListener('keydown', menu._onKey, true);
-    menu._onDocClick = null;
-    menu._onKey = null;
-    menu._contextTarget = null; // Clear stored target
+    menu._onDocClick = null; menu._onKey = null; menu._contextTarget = null;
   }
-
   function ensureContextMenu() {
-    // Helper: detect a valid math target (wrapper or math <img>)
     const findMathTarget = (target) => {
       if (!target) return null;
       if (target.closest) {
-        const w = target.closest('.tex-math-inline, .tex-math-display');
-        if (w) return w;
+        const w = target.closest('.tex-math-inline, .tex-math-display'); if (w) return w;
       }
-      // Fallback: math image without wrapper
       const asImg = target.tagName === 'IMG' ? target : (target.closest ? target.closest('img') : null);
       if (asImg) {
         const alt = asImg.alt || '';
         const isMathAlt = /(\$\$[^$]+\$\$|\$[^$]+\$|\\\([^)*]+\\\)|\\\[[^\]]+\\\])/.test(alt);
-        if (isMathAlt || asImg.getAttribute('data-original-source')) {
-          return asImg;
-        }
+        if (isMathAlt || asImg.getAttribute('data-original-source')) return asImg;
       }
       return null;
     };
-
     document.addEventListener('contextmenu', (e) => {
-      const target = findMathTarget(e.target);
-      if (!target) return; // Not ours
-      e.preventDefault();
-      e.stopPropagation();
-      const x = e.clientX;
-      const y = e.clientY;
-      openCopyMenu(x, y, target);
+      const target = findMathTarget(e.target); if (!target) return;
+      e.preventDefault(); e.stopPropagation();
+      openCopyMenu(e.clientX, e.clientY, target);
     }, true);
-
-    // Keyboard access to custom menu (Shift+F10 or ContextMenu key)
     document.addEventListener('keydown', (e) => {
       const isMenuKey = (e.key === 'ContextMenu') || (e.shiftKey && (e.key === 'F10'));
       if (!isMenuKey) return;
-      const active = document.activeElement;
-      if (!active) return;
-      // Prefer wrapper, but allow math image fallback
-      let target = (active.closest && active.closest('.tex-math-inline, .tex-math-display')) || null;
+      const active = document.activeElement; if (!active) return;
+      let target = active.closest?.('.tex-math-inline, .tex-math-display') || null;
       if (!target && active.tagName === 'IMG') {
         const alt = active.alt || '';
-        if (/(\$\$[^$]+\$\$|\$[^$]+\$|\\\([^)*]+\\\)|\\\[[^\]]+\\\])/.test(alt) || active.getAttribute('data-original-source')) {
-          target = active;
-        }
+        if (/(\$\$[^$]+\$\$|\$[^$]+\$|\\\([^)*]+\\\)|\\\[[^\]]+\\\])/.test(alt) || active.getAttribute('data-original-source')) target = active;
       }
       if (!target) return;
-      e.preventDefault();
-      e.stopPropagation();
+      e.preventDefault(); e.stopPropagation();
       const rect = target.getBoundingClientRect();
       const x = Math.round(rect.left + Math.min(16, rect.width / 2));
       const y = Math.round(rect.top + Math.min(24, rect.height / 2));
@@ -2737,60 +1626,36 @@
     }, true);
   }
 
-  // Find compose area associated with a specific button
+  // === Compose area helpers ===
   function findComposeAreaForButton(button) {
-    // Find the compose window that contains this button
     const composeWindow = button.closest('.M9, .AD, .aoI');
     if (composeWindow) {
-      // Look for compose area within this specific compose window
       for (const selector of CONFIG.composeSelectors) {
         const composeArea = composeWindow.querySelector(selector);
-        if (composeArea) {
-          TeXForGmail.log(`Compose area found for button with selector: ${selector}`);
-          return composeArea;
-        }
+        if (composeArea) { TeXForGmail.log(`Compose area found for button with selector: ${selector}`); return composeArea; }
       }
     }
-    
-    TeXForGmail.log('Compose area not found for button');
-    return null;
+    TeXForGmail.log('Compose area not found for button'); return null;
   }
-  
-  // Find compose area with multiple selector strategies (generic)
   function findComposeArea() {
-    // First, check if the currently focused element is a compose area
-    const activeElement = document.activeElement;
-    if (activeElement) {
+    const active = document.activeElement;
+    if (active) {
       for (const selector of CONFIG.composeSelectors) {
-        if (activeElement.matches(selector)) {
-          TeXForGmail.log(`Active compose area found with selector: ${selector}`);
-          return activeElement;
-        }
+        if (active.matches?.(selector)) { TeXForGmail.log(`Active compose area found with selector: ${selector}`); return active; }
       }
-      
-      // Check if the focused element is inside a compose area
       for (const selector of CONFIG.composeSelectors) {
-        const parent = activeElement.closest(selector);
-        if (parent) {
-          TeXForGmail.log(`Parent compose area found with selector: ${selector}`);
-          return parent;
-        }
+        const parent = active.closest?.(selector);
+        if (parent) { TeXForGmail.log(`Parent compose area found with selector: ${selector}`); return parent; }
       }
     }
-    
-    // Fallback: find the first compose area on the page
     for (const selector of CONFIG.composeSelectors) {
-      const element = document.querySelector(selector);
-      if (element) {
-        TeXForGmail.log(`Compose area found with selector: ${selector}`);
-        return element;
-      }
+      const el = document.querySelector(selector);
+      if (el) { TeXForGmail.log(`Compose area found with selector: ${selector}`); return el; }
     }
-    TeXForGmail.log('Compose area not found');
-    return null;
+    TeXForGmail.log('Compose area not found'); return null;
   }
 
-  // Create TeX button element
+  // === TeX button ===
   function createTexButton() {
     const button = document.createElement('div');
     button.className = 'tex-button wG J-Z-I';
@@ -2798,72 +1663,38 @@
     button.setAttribute('tabindex', '0');
     button.setAttribute('aria-label', 'Toggle LaTeX rendering');
     button.setAttribute('data-tooltip', 'LaTeX rendering is OFF - Click to toggle ON');
-    button.setAttribute('data-toggle-state', 'inactive'); // Initial inactive state
-    button.style.cssText = 'display: inline-flex !important; align-items: center; justify-content: center; user-select: none; margin: 0 8px; cursor: pointer; padding: 6px 12px; background: #9e9e9e; color: white; border-radius: 4px; font-weight: bold; font-size: 14px; height: 30px; vertical-align: middle;';
+    button.setAttribute('data-toggle-state', 'inactive');
+    button.style.cssText = 'display:inline-flex !important; align-items:center; justify-content:center; user-select:none; margin:0 8px; cursor:pointer; padding:6px 12px; background:#9e9e9e; color:white; border-radius:4px; font-weight:bold; font-size:14px; height:30px; vertical-align:middle;';
     button.innerHTML = '📐 TeX OFF';
-    
     return button;
   }
 
-  // Task 6: Handle button click with mutex pattern to prevent race conditions
   function handleTexButtonClick(button) {
-    // Check if button has dataset property for safer processing flag
-    if (!button.dataset) {
-      button.dataset = {};
-    }
-    
-    // Mutex pattern: Check and set processing flag atomically
-    if (button.dataset.processing === 'true') {
-      TeXForGmail.log('Already processing, ignoring click');
-      return;
-    }
-    
-    // Set processing flag immediately
-    button.dataset.processing = 'true';
-    button.disabled = true; // Disable button during processing
-    
-    // Create promise for sequential processing
+    if (!button.dataset) button.dataset = {};
+    if (button.dataset.processing === 'true') { TeXForGmail.log('Already processing, ignoring click'); return; }
+    button.dataset.processing = 'true'; button.disabled = true;
     const processToggle = new Promise((resolve, reject) => {
       try {
-        // Update button state temporarily during processing
-        button.textContent = '⏳ Processing...';
-        button.style.cursor = 'wait';
-        button.style.opacity = '0.6';
-        
-        // Find the compose area associated with this specific button
+        button.textContent = '⏳ Processing...'; button.style.cursor = 'wait'; button.style.opacity = '0.6';
         const composeArea = findComposeAreaForButton(button);
-        
         if (composeArea) {
           TeXForGmail.log('Toggling LaTeX rendering state');
-          
-          // Perform toggle operation with proper synchronization
           requestAnimationFrame(() => {
             try {
               const newState = toggleRendering(composeArea);
-              
-              // Update button visual state to match new toggle state
-              button.style.cursor = 'pointer';
-              button.style.opacity = '1';
-              updateButtonVisualState(button, newState);
-              
+              button.style.cursor = 'pointer'; button.style.opacity = '1'; updateButtonVisualState(button, newState);
               resolve(newState);
             } catch (error) {
               TeXForGmail.log('Error during toggle:', error);
-              // Restore button to current state
-              button.style.cursor = 'pointer';
-              button.style.opacity = '1';
-              const currentState = composeArea ? getToggleState(composeArea) : true;
+              button.style.cursor = 'pointer'; button.style.opacity = '1';
+              const currentState = composeArea ? getToggleState(composeArea) : false;
               updateButtonVisualState(button, currentState);
               reject(error);
             }
           });
         } else {
-          // Reset button state on error
-          button.style.cursor = 'pointer';
-          button.style.opacity = '1';
-          button.textContent = '📐 TeX ON';
-          button.style.background = '#4CAF50';
-          
+          button.style.cursor = 'pointer'; button.style.opacity = '1';
+          button.textContent = '📐 TeX OFF'; button.style.background = '#9e9e9e';
           showToast('Could not find compose area. Please try again.', 'error');
           reject(new Error('Compose area not found'));
         }
@@ -2872,1529 +1703,699 @@
         reject(error);
       }
     });
-    
-    // Always clean up processing flag in finally block
-    processToggle
-      .then((newState) => {
-        TeXForGmail.log(`Toggle completed, new state: ${newState}`);
-      })
-      .catch((error) => {
-        TeXForGmail.log('Toggle failed:', error);
-      })
-      .finally(() => {
-        // Clear processing flag and re-enable button
-        button.dataset.processing = 'false';
-        button.disabled = false;
-        TeXForGmail.processingStates.delete(button); // Clean up legacy state
-      });
+    processToggle.finally(() => {
+      button.dataset.processing = 'false';
+      button.disabled = false;
+      TeXForGmail.processingStates.delete(button);
+    });
   }
 
-  // Function to properly manage auto-render observers with race condition prevention
   function setupAutoRenderObserver(composeArea) {
-    // Prevent duplicate observer setup with mutex
-    if (!TeXForGmail.observerSetupFlags) {
-      TeXForGmail.observerSetupFlags = new WeakMap();
-    }
-    
-    // Check if already setting up observer for this compose area
-    if (TeXForGmail.observerSetupFlags.get(composeArea)) {
-      TeXForGmail.log('Observer setup already in progress, skipping');
-      return;
-    }
-    
-    // Set flag to prevent concurrent setup
+    if (!TeXForGmail.observerSetupFlags) TeXForGmail.observerSetupFlags = new WeakMap();
+    if (TeXForGmail.observerSetupFlags.get(composeArea)) { TeXForGmail.log('Observer setup already in progress, skipping'); return; }
     TeXForGmail.observerSetupFlags.set(composeArea, true);
-    
     try {
-      // Clean up any existing observer for this compose area
-      const existingObserver = TeXForGmail.composeObservers.get(composeArea);
-      if (existingObserver) {
-        existingObserver.disconnect();
-        TeXForGmail.composeObservers.delete(composeArea);
-      }
-    
-    // Only set up observer if rendering is enabled
-    const isRenderingEnabled = getToggleState(composeArea);
-    if (!isRenderingEnabled) {
-      TeXForGmail.log('Not setting up observer - toggle is OFF');
-      return;
-    }
-    
-    // Create debounced render function once for this observer
-    const debouncedRender = debounce(() => {
-      // Double-check toggle state (in case it changed)
-      const isStillEnabled = getToggleState(composeArea);
-      if (isStillEnabled) {
-        TeXForGmail.log('Observer triggered, scheduling render');
-        scheduleRender(composeArea);
-      } else {
-        TeXForGmail.log('Observer triggered but toggle is OFF');
-      }
-    }, CONFIG.debounceDelay);
-    
-    // Create new observer
-    const observer = new MutationObserver((mutations) => {
-      // Check if any mutation contains text changes that might be LaTeX
-      let hasTextChanges = false;
-      for (const mutation of mutations) {
-        if (mutation.type === 'childList') {
-          // Check added nodes for text content
-          for (const node of mutation.addedNodes) {
-            if (node.nodeType === Node.TEXT_NODE || 
-                (node.nodeType === Node.ELEMENT_NODE && node.textContent)) {
-              hasTextChanges = true;
-              break;
+      const existing = TeXForGmail.composeObservers.get(composeArea);
+      if (existing) { existing.disconnect(); TeXForGmail.composeObservers.delete(composeArea); }
+      if (!getToggleState(composeArea)) { TeXForGmail.log('Not setting up observer - toggle is OFF'); return; }
+      const debouncedRender = debounce(() => {
+        if (getToggleState(composeArea)) { TeXForGmail.log('Observer triggered, scheduling render'); scheduleRender(composeArea); }
+        else { TeXForGmail.log('Observer triggered but toggle is OFF'); }
+      }, CONFIG.debounceDelay);
+      const observer = new MutationObserver((mutations) => {
+        let hasTextChanges = false;
+        for (const m of mutations) {
+          if (m.type === 'childList') {
+            for (const node of m.addedNodes) {
+              if (node.nodeType === Node.TEXT_NODE || (node.nodeType === Node.ELEMENT_NODE && node.textContent)) { hasTextChanges = true; break; }
             }
+          } else if (m.type === 'characterData') {
+            if (m.target.nodeType === Node.TEXT_NODE) hasTextChanges = true;
           }
-        } else if (mutation.type === 'characterData') {
-          // Direct text edits within existing text nodes
-          if (mutation.target.nodeType === Node.TEXT_NODE) {
-            hasTextChanges = true;
-          }
+          if (hasTextChanges) break;
         }
-        if (hasTextChanges) break;
-      }
-      
-      if (hasTextChanges) {
-        debouncedRender();
-      }
-    });
-    
-    observer.observe(composeArea, {
-      childList: true,
-      subtree: true,
-      characterData: true // Re-enable to catch text edits
-    });
-    
-      // Store observer reference for cleanup
+        if (hasTextChanges) debouncedRender();
+      });
+      observer.observe(composeArea, { childList: true, subtree: true, characterData: true });
       TeXForGmail.composeObservers.set(composeArea, observer);
-      
-      // Set up removal detection observer
       setupRemovalObserver(composeArea);
-      
       TeXForGmail.log('Auto-render observer set up for compose area');
     } finally {
-      // Always clear setup flag
       TeXForGmail.observerSetupFlags.delete(composeArea);
     }
   }
-  
-  // Add removal observer to detect when compose areas are removed from DOM
+
   function setupRemovalObserver(composeArea) {
-    // Use a separate WeakMap for removal observers
-    if (!TeXForGmail.removalObservers) {
-      TeXForGmail.removalObservers = new WeakMap();
-    }
-    
-    // Clean up any existing removal observer
-    const existingRemovalObserver = TeXForGmail.removalObservers.get(composeArea);
-    if (existingRemovalObserver) {
-      existingRemovalObserver.disconnect();
-    }
-    
-    // Find the parent container to observe
+    if (!TeXForGmail.removalObservers) TeXForGmail.removalObservers = new WeakMap();
+    const existingRemoval = TeXForGmail.removalObservers.get(composeArea);
+    if (existingRemoval) existingRemoval.disconnect();
     const parentContainer = composeArea.closest('.M9, .AD, .aoI') || composeArea.parentElement;
-    if (!parentContainer) {
-      TeXForGmail.log('Could not find parent container for removal observer');
-      return;
-    }
-    
-    // Create removal observer
+    if (!parentContainer) { TeXForGmail.log('Could not find parent container for removal observer'); return; }
     const removalObserver = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
-        // Check if our compose area was removed
         for (const removedNode of mutation.removedNodes) {
-          if (removedNode === composeArea || (removedNode.nodeType === Node.ELEMENT_NODE && 
-                                                removedNode.contains(composeArea))) {
+          if (removedNode === composeArea || (removedNode.nodeType === Node.ELEMENT_NODE && removedNode.contains(composeArea))) {
             TeXForGmail.log('Compose area removed from DOM, cleaning up');
             performComprehensiveCleanup(composeArea);
-            removalObserver.disconnect();
-            TeXForGmail.removalObservers.delete(composeArea);
+            removalObserver.disconnect(); TeXForGmail.removalObservers.delete(composeArea);
             return;
           }
         }
       }
-      
-      // Also check if compose area is no longer in the document
       if (!document.contains(composeArea)) {
         TeXForGmail.log('Compose area no longer in document, cleaning up');
         performComprehensiveCleanup(composeArea);
-        removalObserver.disconnect();
-        TeXForGmail.removalObservers.delete(composeArea);
+        removalObserver.disconnect(); TeXForGmail.removalObservers.delete(composeArea);
       }
     });
-    
-    removalObserver.observe(parentContainer, {
-      childList: true,
-      subtree: false // Only watch direct children
-    });
-    
+    removalObserver.observe(parentContainer, { childList: true, subtree: false });
     TeXForGmail.removalObservers.set(composeArea, removalObserver);
   }
-  
-  // Comprehensive cleanup function for all resources associated with a compose area
+
   function performComprehensiveCleanup(composeArea) {
     TeXForGmail.log('Performing comprehensive cleanup for compose area');
-    
-    // 1. Disconnect and clean up content observer
     const contentObserver = TeXForGmail.composeObservers.get(composeArea);
-    if (contentObserver) {
-      contentObserver.disconnect();
-      TeXForGmail.composeObservers.delete(composeArea);
-      TeXForGmail.log('Content observer disconnected and cleaned');
-    }
-    
-    // 2. Disconnect and clean up removal observer
+    if (contentObserver) { contentObserver.disconnect(); TeXForGmail.composeObservers.delete(composeArea); TeXForGmail.log('Content observer disconnected and cleaned'); }
     if (TeXForGmail.removalObservers) {
       const removalObserver = TeXForGmail.removalObservers.get(composeArea);
-      if (removalObserver) {
-        removalObserver.disconnect();
-        TeXForGmail.removalObservers.delete(composeArea);
-        TeXForGmail.log('Removal observer disconnected and cleaned');
-      }
+      if (removalObserver) { removalObserver.disconnect(); TeXForGmail.removalObservers.delete(composeArea); TeXForGmail.log('Removal observer disconnected and cleaned'); }
     }
-    
-    // 3. Clear any pending render timeouts
     const renderTimeout = TeXForGmail.renderTimeouts.get(composeArea);
-    if (renderTimeout) {
-      clearTimeout(renderTimeout);
-      TeXForGmail.renderTimeouts.delete(composeArea);
-      TeXForGmail.log('Render timeout cleared');
-    }
-    
-    // 4. Clean up toggle state
-    if (TeXForGmail.toggleStates.has(composeArea)) {
-      TeXForGmail.toggleStates.delete(composeArea);
-      TeXForGmail.log('Toggle state cleaned');
-    }
-    
-    // 4b. Clean up saved original content
-    if (TeXForGmail.originalContent.has(composeArea)) {
-      TeXForGmail.originalContent.delete(composeArea);
-      TeXForGmail.log('Original content snapshot cleaned');
-    }
-    
-    // 5. Clean up button and processing states
+    if (renderTimeout) { clearTimeout(renderTimeout); TeXForGmail.renderTimeouts.delete(composeArea); TeXForGmail.log('Render timeout cleared'); }
+    if (TeXForGmail.toggleStates.has(composeArea)) { TeXForGmail.toggleStates.delete(composeArea); TeXForGmail.log('Toggle state cleaned'); }
+    if (TeXForGmail.originalContent.has(composeArea)) { TeXForGmail.originalContent.delete(composeArea); TeXForGmail.log('Original content snapshot cleaned'); }
     const button = getButtonForComposeArea(composeArea);
     if (button) {
       TeXForGmail.processingStates.delete(button);
-      // Also remove button from toolbar association
-      const parent = composeArea.closest('.M9, .AD');
+      const parent = composeArea.closest('.M9, .AD, .aoI');
       if (parent) {
         const toolbar = parent.querySelector('.aZ .J-J5-Ji, .aZ .J-Z-I, .gU .J-Z-I, [gh="tl"] .J-J5-Ji');
-        if (toolbar) {
-          TeXForGmail.composeButtons.delete(toolbar);
-        }
+        if (toolbar) TeXForGmail.composeButtons.delete(toolbar);
       }
       TeXForGmail.log('Button associations cleaned');
     }
-    
-    // 6. Force garbage collection hint (browser may ignore)
-    if (window.gc && typeof window.gc === 'function') {
-      try {
-        window.gc();
-      } catch (e) {
-        // Ignore if gc is not available
-      }
-    }
+    if (window.gc && typeof window.gc === 'function') { try { window.gc(); } catch (_) {} }
   }
 
-  // Cleanup function for compose area observers (now calls comprehensive cleanup)
-  function cleanupComposeObserver(composeArea) {
-    performComprehensiveCleanup(composeArea);
-  }
-  
-  // Complete cleanup for a toolbar and its button
+  // Removed unused function cleanupComposeObserver - using performComprehensiveCleanup directly
   function cleanupToolbarButton(toolbar) {
     const button = TeXForGmail.composeButtons.get(toolbar);
-    if (button) {
-      TeXForGmail.composeButtons.delete(toolbar);
-      TeXForGmail.processingStates.delete(button);
-    }
+    if (button) { TeXForGmail.composeButtons.delete(toolbar); TeXForGmail.processingStates.delete(button); }
   }
 
-  // Add TeX button to compose window
+  // === Inject TeX button into compose window ===
   async function addTexButton(composeElement) {
-    // Check settings for button visibility
     const settings = await TeXForGmail.getSettings();
-    if (!settings.showComposeButton) {
-      TeXForGmail.log('Compose button disabled in settings');
-      return;
-    }
-    
-    // Find the toolbar - multiple possible selectors
-    const toolbarSelectors = [
-      '.aZ .J-J5-Ji',
-      '.aZ .J-Z-I',
-      '.gU .J-Z-I',
-      '[gh="tl"] .J-J5-Ji'
-    ];
-
+    if (!settings.showComposeButton) { TeXForGmail.log('Compose button disabled in settings'); return; }
+    const toolbarSelectors = ['.aZ .J-J5-Ji', '.aZ .J-Z-I', '.gU .J-Z-I', '[gh="tl"] .J-J5-Ji'];
     let toolbar = null;
-    for (const selector of toolbarSelectors) {
-      toolbar = composeElement.querySelector(selector);
-      if (toolbar) break;
-    }
-
+    for (const sel of toolbarSelectors) { toolbar = composeElement.querySelector(sel); if (toolbar) break; }
     if (!toolbar) {
-      // Try finding toolbar in parent elements
       const parent = composeElement.closest('.M9, .AD');
-      if (parent) {
-        for (const selector of toolbarSelectors) {
-          toolbar = parent.querySelector(selector);
-          if (toolbar) break;
-        }
-      }
+      if (parent) for (const sel of toolbarSelectors) { toolbar = parent.querySelector(sel); if (toolbar) break; }
     }
-
-    if (!toolbar) {
-      TeXForGmail.log('Toolbar not found in compose window');
-      return;
-    }
-
-    // Check if button already exists using WeakMap or DOM check
-    if (TeXForGmail.composeButtons.has(toolbar)) {
-      TeXForGmail.log('Button already exists for this toolbar (WeakMap)');
-      return;
-    }
-    
-    // Additional DOM check for existing tex-button to prevent duplicates
+    if (!toolbar) { TeXForGmail.log('Toolbar not found in compose window'); return; }
+    if (TeXForGmail.composeButtons.has(toolbar)) { TeXForGmail.log('Button already exists for this toolbar (WeakMap)'); return; }
     const existingButton = toolbar.querySelector('.tex-button');
-    if (existingButton) {
-      TeXForGmail.log('Button already exists for this toolbar (DOM)');
-      TeXForGmail.composeButtons.set(toolbar, existingButton);
-      return;
-    }
-
+    if (existingButton) { TeXForGmail.log('Button already exists for this toolbar (DOM)'); TeXForGmail.composeButtons.set(toolbar, existingButton); return; }
     const button = createTexButton();
-
-    // Add click event listener
     button.addEventListener('click', () => handleTexButtonClick(button));
-    
-    // Add keyboard support
-    button.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        handleTexButtonClick(button);
-      }
-    });
-
-    // Insert button at the end of the toolbar
+    button.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleTexButtonClick(button); } });
     toolbar.appendChild(button);
     TeXForGmail.composeButtons.set(toolbar, button);
-    
-    // Store association between button and compose element for later retrieval
-    button.dataset.composeId = composeElement.id || Math.random().toString(36).substr(2, 9);
-    
+    button.dataset.composeId = composeElement.id || Math.random().toString(36).substring(2, 11);
     TeXForGmail.log('Button added to compose toolbar');
-    
-    // Make sure button is visible
-    button.style.display = 'inline-flex !important';
-    button.style.visibility = 'visible !important';
-    
-    // Initialize rendering for this compose area - use the specific compose area for this button
+    button.style.display = 'inline-flex !important'; button.style.visibility = 'visible !important';
     const composeArea = findComposeAreaForButton(button);
     if (composeArea) {
-      // Set initial toggle state to INACTIVE (false) - user must explicitly turn ON
-      setToggleState(composeArea, false);
+      // Initialize toggle state based on user preference (default to true for auto-render)
+      // Note: autoRenderOnCompose defaults to true unless explicitly set to false
+      const autoRender = TeXForGmail.settings?.autoRenderOnCompose !== false;
+      setToggleState(composeArea, autoRender);
+      updateButtonVisualState(button, autoRender);
+      TeXForGmail.log(`Button initialized in ${autoRender ? 'ON' : 'OFF'} state - LaTeX rendering ${autoRender ? 'enabled' : 'disabled'}`);
       
-      // Update button to show OFF state initially
-      updateButtonVisualState(button, false);
-      
-      // Don't perform initial rendering or set up observer - wait for user to turn ON
-      TeXForGmail.log('Button initialized in OFF state - click to enable LaTeX rendering');
+      // If auto-render is enabled, schedule initial render
+      if (autoRender) {
+        setTimeout(() => {
+          if (document.contains(composeArea)) {
+            detectAndRenderLatex(composeArea);
+          }
+        }, 500);
+      }
     }
   }
 
-  // Check for compose windows and reading views
   function checkForComposeWindow() {
-    // Look for all compose windows - use Set to avoid duplicates
     const processedToolbars = new Set();
     const composeWindows = document.querySelectorAll('.M9, .AD, .aoI');
-    
     composeWindows.forEach(compose => {
       const toolbar = compose.querySelector('.aZ');
-      if (toolbar && !processedToolbars.has(toolbar)) {
-        processedToolbars.add(toolbar);
-        addTexButton(compose);
-      }
+      if (toolbar && !processedToolbars.has(toolbar)) { processedToolbars.add(toolbar); addTexButton(compose); }
     });
-    
-    // Clean up buttons for closed compose windows
     const allToolbars = document.querySelectorAll('.aZ .J-J5-Ji, .aZ .J-Z-I, .gU .J-Z-I, [gh="tl"] .J-J5-Ji');
-    allToolbars.forEach(toolbar => {
-      if (!toolbar.closest('.M9, .AD, .aoI')) {
-        cleanupToolbarButton(toolbar);
-      }
-    });
-    
-    // Also check for reading views
+    allToolbars.forEach(toolbar => { if (!toolbar.closest('.M9, .AD, .aoI')) cleanupToolbarButton(toolbar); });
     checkForReadingView();
   }
-  
-  // Check for email reading views and add buttons if needed
+
   function checkForReadingView() {
-    // Email content selectors: .ii (message body), .a3s (conversation), .adP (expanded)
     const emailContainers = document.querySelectorAll('.ii, .a3s, .adP');
-    
     emailContainers.forEach(container => {
-      // Find the email's toolbar - check multiple possible locations
       const toolbarSelectors = ['.btC', '.aqK', '.G-atb', '.iH > div', '.aaq'];
       let toolbar = null;
-      
-      // Try to find a toolbar associated with this email
-      for (const selector of toolbarSelectors) {
+      for (const sel of toolbarSelectors) {
         const parent = container.closest('.h7, .adn, .Bs');
-        if (parent) {
-          toolbar = parent.querySelector(selector);
-          if (toolbar) break;
-        }
+        if (parent) { toolbar = parent.querySelector(sel); if (toolbar) break; }
       }
-      
-      // If we found a toolbar and haven't already added a button
       if (toolbar && !TeXForGmail.readButtons.get(toolbar)) {
         TeXForGmail.log('Found email reading view, adding button');
         addReadModeButton(container, toolbar);
       }
     });
-    
-    // Clean up buttons for closed email views
-    TeXForGmail.readButtons.forEach((button, toolbar) => {
-      if (!document.body.contains(toolbar)) {
-        TeXForGmail.readButtons.delete(toolbar);
-        TeXForGmail.log('Cleaned up read mode button for removed toolbar');
-      }
+    TeXForGmail.readButtons.forEach((_, toolbar) => {
+      if (!document.body.contains(toolbar)) { TeXForGmail.readButtons.delete(toolbar); TeXForGmail.log('Cleaned up read mode button for removed toolbar'); }
     });
   }
-  
-  // Add TeX button to email reading mode
+
   async function addReadModeButton(emailContainer, toolbar) {
-    // Check settings for button visibility
     const settings = await TeXForGmail.getSettings();
-    if (!settings.showReadButton) {
-      TeXForGmail.log('Read mode button disabled in settings');
-      return;
-    }
-    
-    // Check if button already exists
-    if (TeXForGmail.readButtons.get(toolbar)) {
-      TeXForGmail.log('Read mode button already exists for this toolbar');
-      return;
-    }
-    
-    // Create button similar to compose button
+    if (!settings.showReadButton) { TeXForGmail.log('Read mode button disabled in settings'); return; }
+    if (TeXForGmail.readButtons.get(toolbar)) { TeXForGmail.log('Read mode button already exists for this toolbar'); return; }
     const button = createTexButton();
-    
-    // Store button reference
     TeXForGmail.readButtons.set(toolbar, button);
-    
-    // Button click handler for read mode
     button.addEventListener('click', async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      
+      e.preventDefault(); e.stopPropagation();
       TeXForGmail.log('Read mode TeX button clicked');
-      
-      // Check if already processing
-      if (TeXForGmail.processingStates.get(button)) {
-        TeXForGmail.log('Already processing, ignoring click');
-        return;
-      }
-      
-      // Set processing state
+      if (TeXForGmail.processingStates.get(button)) { TeXForGmail.log('Already processing, ignoring click'); return; }
       TeXForGmail.processingStates.set(button, true);
-      
       try {
-        // Toggle button state
         const isActive = button.getAttribute('aria-pressed') === 'true';
-        
         if (!isActive) {
-          // Activate and render
-          button.style.background = '#e3f2fd';
-          button.setAttribute('aria-pressed', 'true');
-          
-          // Render LaTeX in the email via non-destructive overlay
+          button.style.background = '#e3f2fd'; button.setAttribute('aria-pressed', 'true');
           await TeXForGmail.renderReadOverlay(emailContainer);
-          
           showToast('LaTeX rendered in email', 'success');
           TeXForGmail.log('Read mode LaTeX rendering complete');
         } else {
-          // Deactivate - restore original content if possible
-          button.style.background = '';
-          button.setAttribute('aria-pressed', 'false');
-          
-          // Remove overlay (original content remains untouched)
+          button.style.background = ''; button.setAttribute('aria-pressed', 'false');
           TeXForGmail.removeReadOverlay(emailContainer);
-          
           showToast('LaTeX rendering disabled', 'info');
         }
       } catch (error) {
-        TeXForGmail.log('Error in read mode button handler:', error);
-        showToast('Error rendering LaTeX', 'error');
+        TeXForGmail.log('Error in read mode button handler:', error); showToast('Error rendering LaTeX', 'error');
       } finally {
-        // Clear processing state
         TeXForGmail.processingStates.delete(button);
       }
     });
-    
-    // Find appropriate place to insert button
-    const buttonGroup = toolbar.querySelector('.aaq, .btC, .G-atb');
-    if (buttonGroup) {
-      // Add some spacing
-      button.style.marginLeft = '8px';
-      buttonGroup.appendChild(button);
-    } else {
-      // Fallback: add to toolbar directly
-      toolbar.appendChild(button);
-    }
-    
+    const group = toolbar.querySelector('.aaq, .btC, .G-atb');
+    if (group) { button.style.marginLeft = '8px'; group.appendChild(button); } else { toolbar.appendChild(button); }
     TeXForGmail.log('Read mode TeX button added to toolbar');
   }
 
-  // Set up mutation observer with debouncing
+  // === Main DOM observer, More menu observer, Send interceptor, Keyboard ===
   TeXForGmail.setupObserver = function() {
     const debouncedCheck = debounce(checkForComposeWindow, CONFIG.debounceDelay);
-    
     this.observer = new MutationObserver(debouncedCheck);
     this.observer.observe(document.body, CONFIG.observerConfig);
     TeXForGmail.log('Observer watching for compose windows');
-    
-    // Set up send button interceptor for ensuring rendered math in emails
     this.setupSendInterceptor();
-    
-    // Set up More menu observer for Gmail integration
     this.setupMoreMenuObserver();
   };
-  
-  // Set up observer for Gmail More menu integration
+
   TeXForGmail.setupMoreMenuObserver = function() {
-    let menuObserver = null;
-    
-    // Function to check if email contains LaTeX
     const containsLatex = (emailElement) => {
       if (!emailElement) return false;
       const text = emailElement.textContent || '';
-      // Check for LaTeX delimiters
-      return /\$\$[\s\S]+?\$\$|\$[^\$\n]+?\$|\\[\[\(][\s\S]+?\\[\]\)]|\\begin\{[\s\S]+?\\end\{/g.test(text);
+      return /\$\$[\s\S]+?\$\$|\$[^\$\n]+?\$|\\[\[\(][\s\S]+?\\[\]\)]|\\begin\{[\s\S]+?\\end\{/.test(text);
     };
-    
-    // Function to add menu item
     const addRenderMenuItem = (menu, emailElement) => {
-      // Check if already added
       if (menu.querySelector('.tex-gmail-menu-item')) return;
-      
-      // Find existing menu items to clone structure
-      const existingItem = menu.querySelector('.J-N');
-      if (!existingItem) return;
-      
-      // Create new menu item
+      const existingItem = menu.querySelector('.J-N'); if (!existingItem) return;
       const menuItem = existingItem.cloneNode(true);
       menuItem.className = existingItem.className + ' tex-gmail-menu-item';
-      
-      // Update text - look for text element
       const textElement = menuItem.querySelector('[role="menuitem"]') || menuItem;
       textElement.textContent = 'Render LaTeX';
-      
-      // Add click handler
       menuItem.addEventListener('click', async (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        
+        e.preventDefault(); e.stopPropagation();
         TeXForGmail.log('More menu: Render LaTeX clicked');
-        
-        // Close the menu
-        const backdrop = document.querySelector('.J-M-Jz');
-        if (backdrop) backdrop.click();
-        
-        // Render LaTeX in the email via non-destructive overlay
+        const backdrop = document.querySelector('.J-M-Jz'); if (backdrop) backdrop.click();
         showToast('Rendering LaTeX in email...', 'info');
         await TeXForGmail.renderReadOverlay(emailElement);
         showToast('LaTeX rendering complete', 'success');
       });
-      
-      // Add separator if needed
-      const separator = menu.querySelector('.J-Kh');
-      if (separator) {
-        const newSeparator = separator.cloneNode(true);
-        menu.appendChild(newSeparator);
-      }
-      
-      // Add the menu item
+      const separator = menu.querySelector('.J-Kh'); if (separator) menu.appendChild(separator.cloneNode(true));
       menu.appendChild(menuItem);
       TeXForGmail.log('Added Render LaTeX to More menu');
     };
-    
-    // Observer for More menu appearance
     const moreMenuObserver = new MutationObserver((mutations) => {
-      mutations.forEach((mutation) => {
-        mutation.addedNodes.forEach((node) => {
-          if (node.nodeType === 1) { // Element node
-            // Check for menu container
+      mutations.forEach(mutation => {
+        mutation.addedNodes.forEach(node => {
+          if (node.nodeType === 1) {
             const menu = node.querySelector?.('.J-M') || (node.classList?.contains('J-M') ? node : null);
             if (menu) {
               TeXForGmail.log('More menu detected');
-              
-              // Find the associated email element
-              const emailElement = document.querySelector('.ii:hover, .a3s:hover, .adP:hover') ||
-                                  document.querySelector('.ii, .a3s, .adP');
-              
-              // Only add if email contains LaTeX
-              if (emailElement && containsLatex(emailElement)) {
-                addRenderMenuItem(menu, emailElement);
-              }
+              const emailElement = document.querySelector('.ii:hover, .a3s:hover, .adP:hover') || document.querySelector('.ii, .a3s, .adP');
+              if (emailElement && containsLatex(emailElement)) addRenderMenuItem(menu, emailElement);
             }
           }
         });
       });
     });
-    
-    // Start observing
-    moreMenuObserver.observe(document.body, {
-      childList: true,
-      subtree: true
-    });
-    
+    moreMenuObserver.observe(document.body, { childList: true, subtree: true });
     this.moreMenuObserver = moreMenuObserver;
     this.log('More menu observer initialized');
   };
-  
-  // Set up global keyboard event handler
+
   TeXForGmail.setupKeyboardHandler = function() {
-    if (!this.keyboardHandler) {
-      this.keyboardHandler = this.handleGlobalKeyboard.bind(this);
-      document.addEventListener('keydown', this.keyboardHandler, true);
-      this.log('Keyboard handler registered');
-    }
+    if (!this.keyboardHandler) { this.keyboardHandler = this.handleGlobalKeyboard.bind(this); document.addEventListener('keydown', this.keyboardHandler, true); this.log('Keyboard handler registered'); }
   };
-  
-  // Handle global keyboard events for LaTeX rendering
+
   TeXForGmail.handleGlobalKeyboard = async function(e) {
-    // Load settings
     const settings = await this.getSettings();
     const isShortcutKey = (e.key === 'F8' || e.key === 'F9');
-    const hasModifier = e.ctrlKey || e.metaKey;
-
-    // If shortcuts are disabled, show a warning toast when user presses the keys
     if (!settings?.enableKeyboardShortcuts) {
-      if (isShortcutKey || (e.ctrlKey && e.shiftKey)) {
-        const shortcutType = hasModifier ? 'continuous' : 'single';
-        showToast(`Keyboard shortcuts are disabled. Enable them in TeX for Gmail settings.`, 'warning');
-        return;
-      }
+      if (isShortcutKey || (e.ctrlKey && e.shiftKey)) { showToast(`Keyboard shortcuts are disabled. Enable them in TeX for Gmail settings.`, 'warning'); return; }
     }
-    
-    // Check if we're in a compose area for template shortcuts
     const composeArea = this.getActiveTarget();
-    
-    // Tab navigation for templates
+
     if (e.key === 'Tab' && composeArea && settings?.enableKeyboardShortcuts) {
       const selection = window.getSelection();
       if (selection.rangeCount > 0) {
         const range = selection.getRangeAt(0);
         const container = range.commonAncestorContainer;
-        
-        // Check if we're in a text node with LaTeX content containing empty {}
-        if (container.nodeType === Node.TEXT_NODE && 
-            container.textContent.includes('{}')) {
-          e.preventDefault();
-          e.stopPropagation();
-          this.navigateTemplate(e.shiftKey ? 'prev' : 'next');
-          return;
+        if (container.nodeType === Node.TEXT_NODE && container.textContent.includes('{}')) {
+          e.preventDefault(); e.stopPropagation(); this.navigateTemplate(e.shiftKey ? 'prev' : 'next'); return;
         }
       }
     }
-    
-    // Ctrl+Shift template shortcuts
+
     if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && settings?.enableKeyboardShortcuts) {
       const template = this.TEX_TEMPLATES[e.key.toUpperCase()];
       if (template && composeArea) {
-        e.preventDefault();
-        e.stopPropagation();
-        
-        if (this.insertTexTemplate(template.template)) {
-          showToast(`Inserted ${template.name}`, 'info');
-          this.log(`Template shortcut: Inserted ${template.name}`);
-        }
+        e.preventDefault(); e.stopPropagation();
+        if (this.insertTexTemplate(template.template)) { showToast(`Inserted ${template.name}`, 'info'); this.log(`Template shortcut: Inserted ${template.name}`); }
         return;
       }
     }
-    
-    // F8: Rich Math once
+
     if (e.key === 'F8' && !e.ctrlKey && !e.metaKey) {
-      e.preventDefault();
-      e.stopPropagation();
+      e.preventDefault(); e.stopPropagation();
+      const target = this.getActiveTarget();
+      if (target) { this.log('F8 pressed: Rendering Rich Math once'); showToast('Rendering LaTeX as Rich Math...', 'info'); await this.renderOnceRichMath(target); showToast('Rich Math rendering complete', 'success'); }
+    } else if (e.key === 'F9' && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault(); e.stopPropagation();
       const target = this.getActiveTarget();
       if (target) {
-        this.log('F8 pressed: Rendering Rich Math once');
-        showToast('Rendering LaTeX as Rich Math...', 'info');
-        await this.renderOnceRichMath(target);
-        showToast('Rich Math rendering complete', 'success');
+        if (!settings.enableSimpleMath) { showToast('Simple Math mode is disabled in settings', 'warning'); return; }
+        this.log('F9 pressed: Rendering Simple Math once'); showToast('Rendering LaTeX as Simple Math...', 'info'); await this.renderOnceSimpleMath(target); showToast('Simple Math rendering complete', 'success');
       }
-    }
-    // F9: Simple Math once  
-    else if (e.key === 'F9' && !e.ctrlKey && !e.metaKey) {
-      e.preventDefault();
-      e.stopPropagation();
-      const target = this.getActiveTarget();
-      if (target) {
-        if (!settings.enableSimpleMath) {
-          showToast('Simple Math mode is disabled in settings', 'warning');
-          return;
-        }
-        this.log('F9 pressed: Rendering Simple Math once');
-        showToast('Rendering LaTeX as Simple Math...', 'info');
-        await this.renderOnceSimpleMath(target);
-        showToast('Simple Math rendering complete', 'success');
-      }
-    }
-    // Cmd/Ctrl+F8: Toggle continuous Rich Math
-    else if (e.key === 'F8' && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      e.stopPropagation();
-      this.log('Cmd/Ctrl+F8 pressed: Toggling continuous Rich Math');
-      await this.toggleContinuousMode('rich');
-    }
-    // Cmd/Ctrl+F9: Toggle continuous Simple Math
-    else if (e.key === 'F9' && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      e.stopPropagation();
-      this.log('Cmd/Ctrl+F9 pressed: Toggling continuous Simple Math');
-      if (!settings.enableSimpleMath) {
-        showToast('Simple Math mode is disabled in settings', 'warning');
-        return;
-      }
+    } else if (e.key === 'F8' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault(); e.stopPropagation(); this.log('Cmd/Ctrl+F8 pressed: Toggling continuous Rich Math'); await this.toggleContinuousMode('rich');
+    } else if (e.key === 'F9' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault(); e.stopPropagation(); this.log('Cmd/Ctrl+F9 pressed: Toggling continuous Simple Math');
+      if (!settings.enableSimpleMath) { showToast('Simple Math mode is disabled in settings', 'warning'); return; }
       await this.toggleContinuousMode('simple');
     }
   };
-  
-  // Get the active target element (compose or read mode)
+
   TeXForGmail.getActiveTarget = function() {
-    // Check if we're in a compose window
-    const activeElement = document.activeElement;
-    
-    // First check if focus is in a compose area
-    const composeArea = activeElement?.closest('.M9, .AD, .aoI, [contenteditable="true"]');
-    if (composeArea) {
-      this.log('Active target: Compose area');
-      return composeArea;
-    }
-    
-    // Check if we're viewing an email (read mode)
+    const active = document.activeElement;
+    const composeArea = active?.closest?.('.M9, .AD, .aoI, [contenteditable="true"]');
+    if (composeArea) { this.log('Active target: Compose area'); return composeArea; }
     const emailContainers = document.querySelectorAll('.ii, .a3s, .adP');
     if (emailContainers.length > 0) {
-      // Return the first visible email container
-      for (const container of emailContainers) {
-        if (container.offsetParent !== null) { // Check if visible
-          this.log('Active target: Email reading area');
-          return container;
-        }
-      }
+      for (const c of emailContainers) if (c.offsetParent !== null) { this.log('Active target: Email reading area'); return c; }
     }
-    
-    this.log('No active target found');
-    return null;
+    this.log('No active target found'); return null;
   };
-  
-  // Render LaTeX once with Rich Math (API/images)
+
   TeXForGmail.renderOnceRichMath = async function(targetElement) {
     this.log('Rendering once with Rich Math');
-    
-    // Temporarily set mode to Rich Math
-    const previousMode = this.simpleMode;
-    this.simpleMode = false;
-    
+    const previous = this.simpleMode; this.simpleMode = false;
     try {
-      // Check if it's a read mode email
-      const isReadMode = targetElement.classList.contains('ii') || 
-                        targetElement.classList.contains('a3s') || 
-                        targetElement.classList.contains('adP');
-      if (isReadMode) {
-        await this.renderReadOverlay(targetElement);
-      } else {
-        // Render without setting up observers
-        await detectAndRenderLatex(targetElement, {
-          oneTimeRender: true,
-          isReadMode: false
-        });
-      }
-      
-      this.log('One-time Rich Math rendering complete');
-      return Promise.resolve();
-    } catch (error) {
-      this.log('Error in renderOnceRichMath:', error);
-      showToast('Error rendering Rich Math', 'error');
-      return Promise.reject(error);
-    } finally {
-      // Restore previous mode
-      this.simpleMode = previousMode;
-    }
+      const isRead = targetElement.classList.contains('ii') || targetElement.classList.contains('a3s') || targetElement.classList.contains('adP');
+      if (isRead) await this.renderReadOverlay(targetElement);
+      else detectAndRenderLatex(targetElement, { oneTimeRender: true, isReadMode: false });
+      this.log('One-time Rich Math rendering complete'); return Promise.resolve();
+    } catch (error) { this.log('Error in renderOnceRichMath:', error); showToast('Error rendering Rich Math', 'error'); return Promise.reject(error); }
+    finally { this.simpleMode = previous; }
   };
-  
-  // Render LaTeX once with Simple Math (HTML/CSS)
+
   TeXForGmail.renderOnceSimpleMath = async function(targetElement) {
     this.log('Rendering once with Simple Math');
     const settings = await this.getSettings();
-    if (!settings?.enableSimpleMath) {
-      showToast('Simple Math mode is disabled in settings', 'warning');
-      return;
-    }
-    
-    // Temporarily set mode to Simple Math
-    const previousMode = this.simpleMode;
-    this.simpleMode = true;
-    
+    if (!settings?.enableSimpleMath) { showToast('Simple Math mode is disabled in settings', 'warning'); return; }
+    const previous = this.simpleMode; this.simpleMode = true;
     try {
-      // Check if it's a read mode email
-      const isReadMode = targetElement.classList.contains('ii') || 
-                        targetElement.classList.contains('a3s') || 
-                        targetElement.classList.contains('adP');
-      if (isReadMode) {
-        await this.renderReadOverlay(targetElement);
-      } else {
-        // Render without setting up observers
-        await detectAndRenderLatex(targetElement, {
-          oneTimeRender: true,
-          isReadMode: false
-        });
-      }
-      
-      this.log('One-time Simple Math rendering complete');
-      return Promise.resolve();
-    } catch (error) {
-      this.log('Error in renderOnceSimpleMath:', error);
-      showToast('Error rendering Simple Math', 'error');
-      return Promise.reject(error);
-    } finally {
-      // Restore previous mode
-      this.simpleMode = previousMode;
-    }
+      const isRead = targetElement.classList.contains('ii') || targetElement.classList.contains('a3s') || targetElement.classList.contains('adP');
+      if (isRead) await this.renderReadOverlay(targetElement);
+      else detectAndRenderLatex(targetElement, { oneTimeRender: true, isReadMode: false });
+      this.log('One-time Simple Math rendering complete'); return Promise.resolve();
+    } catch (error) { this.log('Error in renderOnceSimpleMath:', error); showToast('Error rendering Simple Math', 'error'); return Promise.reject(error); }
+    finally { this.simpleMode = previous; }
   };
-  
-  // Toggle continuous rendering mode
+
+  // Toggle continuous rendering (uses existing observer paths; boolean toggle only)
   TeXForGmail.toggleContinuousMode = async function(mode) {
     const settings = await this.getSettings();
-    if (mode === 'simple' && !settings?.enableSimpleMath) {
-      showToast('Simple Math mode is disabled in settings', 'warning');
-      return;
-    }
+    if (mode === 'simple' && !settings?.enableSimpleMath) { showToast('Simple Math mode is disabled in settings', 'warning'); return; }
     const target = this.getActiveTarget();
-    if (!target) {
-      showToast('No active compose or email area found', 'error');
+    if (!target) { showToast('No active compose or email area found', 'error'); return; }
+    const isCompose = !!target.closest('.M9, .AD, .aoI, [contenteditable="true"]');
+    if (!isCompose) {
+      // read mode → one-time
+      showToast('Rendering LaTeX in email...', 'info');
+      if (mode === 'simple') await this.renderOnceSimpleMath(target); else await this.renderOnceRichMath(target);
+      showToast('Email rendering complete', 'success');
       return;
     }
-    
-    // Check if it's a compose area
-    const isComposeArea = target.closest('.M9, .AD, .aoI, [contenteditable="true"]');
-    
-    if (isComposeArea) {
-      // Find the TeX button for this compose area
-      const toolbar = isComposeArea.closest('.M9, .AD, .aoI')?.querySelector('.btC, .aaq, .aaZ');
-      const button = toolbar ? this.composeButtons.get(toolbar) : null;
-      
-      if (button) {
-        // Get current state
-        const currentState = getToggleState(isComposeArea);
-        const newMode = mode === 'simple' ? 'simple' : 'api';
-        
-        if (currentState === 'off' || currentState !== newMode) {
-          // Turn on with the requested mode
-          this.simpleMode = (mode === 'simple');
-          setToggleState(isComposeArea, newMode);
-          
-          // Update button appearance
-          button.style.background = '#e3f2fd';
-          button.setAttribute('aria-pressed', 'true');
-          
-          // Start continuous rendering
-          setupContentObserver(isComposeArea);
-          detectAndRenderLatex(isComposeArea);
-          
-          const modeText = mode === 'simple' ? 'Simple Math' : 'Rich Math';
-          showToast(`Continuous ${modeText} rendering enabled`, 'success');
-          this.log(`Toggled continuous ${modeText} mode ON`);
-        } else {
-          // Turn off
-          setToggleState(isComposeArea, 'off');
-          
-          // Update button appearance
-          button.style.background = '';
-          button.setAttribute('aria-pressed', 'false');
-          
-          // Stop rendering and restore content
-          restoreOriginalContent(isComposeArea);
-          removeContentObserver(isComposeArea);
-          
-          showToast('Continuous rendering disabled', 'info');
-          this.log('Toggled continuous mode OFF');
-        }
-      } else {
-        // No button found, but we can still render once
-        showToast('TeX button not found, rendering once', 'warning');
-        if (mode === 'simple') {
-          await this.renderOnceSimpleMath(target);
-        } else {
-          await this.renderOnceRichMath(target);
-        }
-      }
+    // Compose continuous
+    this.simpleMode = (mode === 'simple');
+    const currentState = getToggleState(target);
+    if (!currentState) {
+      setToggleState(target, true);
+      setupAutoRenderObserver(target);
+      detectAndRenderLatex(target);
+      const modeText = mode === 'simple' ? 'Simple Math' : 'Rich Math';
+      showToast(`Continuous ${modeText} rendering enabled`, 'success');
+      this.log(`Toggled continuous ${modeText} mode ON`);
     } else {
-      // For read mode, just render once (no continuous mode)
-      showToast('Rendering LaTeX in email...', 'info');
-      if (mode === 'simple') {
-        await this.renderOnceSimpleMath(target);
-      } else {
-        await this.renderOnceRichMath(target);
-      }
-      showToast('Email rendering complete', 'success');
+      setToggleState(target, false);
+      restoreLatexSource(target);
+      performComprehensiveCleanup(target);
+      showToast('Continuous rendering disabled', 'info');
+      this.log('Toggled continuous mode OFF');
     }
   };
-  
-  // Send behavior dialog functions
+
+  // === Send dialog & Interceptor ===
   function createSendDialog() {
-    // Check if dialog already exists
-    if (document.getElementById('tex-gmail-send-dialog')) {
-      return document.getElementById('tex-gmail-send-dialog');
-    }
-    
-    // Create dialog container
+    if (document.getElementById('tex-gmail-send-dialog')) return document.getElementById('tex-gmail-send-dialog');
     const dialog = document.createElement('div');
     dialog.id = 'tex-gmail-send-dialog';
     dialog.style.cssText = `
-      position: fixed;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      background: white;
-      border-radius: 8px;
-      box-shadow: 0 24px 38px 3px rgba(0,0,0,0.14), 0 9px 46px 8px rgba(0,0,0,0.12), 0 11px 15px -7px rgba(0,0,0,0.2);
-      z-index: 9999;
-      padding: 24px;
-      min-width: 400px;
-      max-width: 500px;
-      display: none;
-      font-family: 'Roboto', 'Google Sans', Arial, sans-serif;
-    `;
-    
-    // Create dialog content
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      background: white; border-radius: 8px; box-shadow: 0 24px 38px 3px rgba(0,0,0,0.14), 0 9px 46px 8px rgba(0,0,0,0.12), 0 11px 15px -7px rgba(0,0,0,0.2);
+      z-index: 9999; padding: 24px; min-width: 400px; max-width: 500px; display: none; font-family: 'Roboto', 'Google Sans', Arial, sans-serif;`;
     dialog.innerHTML = `
       <div style="margin-bottom: 20px;">
-        <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 400; color: #202124;">
-          LaTeX Rendering
-        </h2>
-        <p style="margin: 0; color: #5f6368; font-size: 14px; line-height: 20px;">
-          Your email contains LaTeX equations. Would you like to render them as images before sending?
-        </p>
-        <div style="margin-top: 12px; padding: 12px; background: #f8f9fa; border-radius: 4px;">
-          <p style="margin: 0; color: #5f6368; font-size: 12px;">
-            <strong>Note:</strong> Rendering will convert LaTeX code into images that all recipients can view.
-          </p>
+        <h2 style="margin:0 0 16px 0; font-size:20px; font-weight:400; color:#202124;">LaTeX Rendering</h2>
+        <p style="margin:0; color:#5f6368; font-size:14px; line-height:20px;">Your email contains LaTeX equations. Render them as images before sending?</p>
+        <div style="margin-top:12px; padding:12px; background:#f8f9fa; border-radius:4px;">
+          <p style="margin:0; color:#5f6368; font-size:12px;"><strong>Note:</strong> Rendering converts LaTeX code into images that all recipients can view.</p>
         </div>
       </div>
-      
-      <div style="margin: 20px 0; padding: 12px 0; border-top: 1px solid #e8eaed;">
-        <label style="display: flex; align-items: center; cursor: pointer; font-size: 14px; color: #5f6368;">
-          <input type="checkbox" id="tex-gmail-remember-choice" style="margin-right: 8px; cursor: pointer;">
-          Remember my choice for this session
+      <div style="margin:20px 0; padding:12px 0; border-top:1px solid #e8eaed;">
+        <label style="display:flex; align-items:center; cursor:pointer; font-size:14px; color:#5f6368;">
+          <input type="checkbox" id="tex-gmail-remember-choice" style="margin-right:8px; cursor:pointer;"> Remember my choice for this session
         </label>
       </div>
-      
-      <div style="display: flex; justify-content: flex-end; gap: 8px;">
-        <button id="tex-gmail-cancel-send" style="
-          padding: 8px 16px;
-          border: 1px solid #dadce0;
-          background: white;
-          color: #5f6368;
-          border-radius: 4px;
-          font-size: 14px;
-          font-weight: 500;
-          cursor: pointer;
-          transition: all 0.2s;
-        ">Cancel</button>
-        <button id="tex-gmail-send-without-render" style="
-          padding: 8px 16px;
-          border: 1px solid #dadce0;
-          background: white;
-          color: #202124;
-          border-radius: 4px;
-          font-size: 14px;
-          font-weight: 500;
-          cursor: pointer;
-          transition: all 0.2s;
-        ">Send without rendering</button>
-        <button id="tex-gmail-render-and-send" style="
-          padding: 8px 16px;
-          border: none;
-          background: #1a73e8;
-          color: white;
-          border-radius: 4px;
-          font-size: 14px;
-          font-weight: 500;
-          cursor: pointer;
-          transition: all 0.2s;
-        ">Render and Send</button>
-      </div>
-    `;
-    
-    // Create backdrop
+      <div style="display:flex; justify-content:flex-end; gap:8px;">
+        <button id="tex-gmail-cancel-send" style="padding:8px 16px; border:1px solid #dadce0; background:white; color:#5f6368; border-radius:4px; font-size:14px; font-weight:500; cursor:pointer; transition:all 0.2s;">Cancel</button>
+        <button id="tex-gmail-send-without-render" style="padding:8px 16px; border:1px solid #dadce0; background:white; color:#202124; border-radius:4px; font-size:14px; font-weight:500; cursor:pointer; transition:all 0.2s;">Send without rendering</button>
+        <button id="tex-gmail-render-and-send" style="padding:8px 16px; border:none; background:#1a73e8; color:white; border-radius:4px; font-size:14px; font-weight:500; cursor:pointer; transition:all 0.2s;">Render and Send</button>
+      </div>`;
     const backdrop = document.createElement('div');
     backdrop.id = 'tex-gmail-dialog-backdrop';
-    backdrop.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0, 0, 0, 0.5);
-      z-index: 9998;
-      display: none;
-    `;
-    
-    // Add hover effects
+    backdrop.style.cssText = `position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9998; display:none;`;
     const style = document.createElement('style');
     style.textContent = `
-      #tex-gmail-render-and-send:hover {
-        background: #1557b0 !important;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-      }
-      #tex-gmail-send-without-render:hover,
-      #tex-gmail-cancel-send:hover {
-        background: #f8f9fa !important;
-        border-color: #9aa0a6 !important;
-      }
-      #tex-gmail-send-dialog button:focus {
-        outline: 2px solid #1a73e8;
-        outline-offset: 2px;
-      }
-    `;
+      #tex-gmail-render-and-send:hover { background:#1557b0 !important; box-shadow:0 1px 3px rgba(0,0,0,0.2); }
+      #tex-gmail-send-without-render:hover, #tex-gmail-cancel-send:hover { background:#f8f9fa !important; border-color:#9aa0a6 !important; }
+      #tex-gmail-send-dialog button:focus { outline:2px solid #1a73e8; outline-offset:2px; }`;
     document.head.appendChild(style);
-    
-    // Append to body
-    document.body.appendChild(backdrop);
-    document.body.appendChild(dialog);
-    
+    document.body.appendChild(backdrop); document.body.appendChild(dialog);
     return dialog;
   }
-  
   function showSendDialog() {
     return new Promise((resolve) => {
       const dialog = createSendDialog();
       const backdrop = document.getElementById('tex-gmail-dialog-backdrop');
-      
-      // Show dialog and backdrop
-      dialog.style.display = 'block';
-      backdrop.style.display = 'block';
-      
-      // Focus on render button for accessibility
-      const renderButton = document.getElementById('tex-gmail-render-and-send');
-      renderButton.focus();
-      
-      // Handle button clicks
+      dialog.style.display = 'block'; backdrop.style.display = 'block';
+      const renderButton = document.getElementById('tex-gmail-render-and-send'); renderButton.focus();
       const cancelButton = document.getElementById('tex-gmail-cancel-send');
       const sendWithoutButton = document.getElementById('tex-gmail-send-without-render');
-      const renderAndSendButton = document.getElementById('tex-gmail-render-and-send');
       const rememberCheckbox = document.getElementById('tex-gmail-remember-choice');
-      
-      // Clean up function
       const cleanup = () => {
-        dialog.style.display = 'none';
-        backdrop.style.display = 'none';
-        // Remove event listeners
+        dialog.style.display = 'none'; backdrop.style.display = 'none';
         cancelButton.removeEventListener('click', handleCancel);
         sendWithoutButton.removeEventListener('click', handleSendWithout);
-        renderAndSendButton.removeEventListener('click', handleRenderAndSend);
+        renderButton.removeEventListener('click', handleRenderAndSend);
         document.removeEventListener('keydown', handleEscape);
       };
-      
-      const handleCancel = () => {
-        cleanup();
-        resolve({ action: 'cancel', remember: rememberCheckbox.checked });
-      };
-      
-      const handleSendWithout = () => {
-        cleanup();
-        resolve({ action: 'send_without_render', remember: rememberCheckbox.checked });
-      };
-      
-      const handleRenderAndSend = () => {
-        cleanup();
-        resolve({ action: 'render_and_send', remember: rememberCheckbox.checked });
-      };
-      
-      const handleEscape = (e) => {
-        if (e.key === 'Escape') {
-          handleCancel();
-        } else if (e.key === 'Enter' && !e.shiftKey) {
-          handleRenderAndSend();
-        }
-      };
-      
-      // Attach event listeners
+      const handleCancel = () => { cleanup(); resolve({ action: 'cancel', remember: rememberCheckbox.checked }); };
+      const handleSendWithout = () => { cleanup(); resolve({ action: 'send_without_render', remember: rememberCheckbox.checked }); };
+      const handleRenderAndSend = () => { cleanup(); resolve({ action: 'render_and_send', remember: rememberCheckbox.checked }); };
+      const handleEscape = (e) => { if (e.key === 'Escape') handleCancel(); else if (e.key === 'Enter' && !e.shiftKey) handleRenderAndSend(); };
       cancelButton.addEventListener('click', handleCancel);
       sendWithoutButton.addEventListener('click', handleSendWithout);
-      renderAndSendButton.addEventListener('click', handleRenderAndSend);
+      renderButton.addEventListener('click', handleRenderAndSend);
       document.addEventListener('keydown', handleEscape);
     });
   }
 
-  // Fixed send interceptor with all critical bugs resolved
   TeXForGmail.setupSendInterceptor = function() {
-    // Track programmatic clicks to prevent infinite recursion
     let programmaticSendInProgress = false;
-    
-    // Helper function to render and wait for all images to load
+
     const renderAndWaitForImages = async function(composeArea) {
       return new Promise((resolve, reject) => {
         try {
-          // Set toggle state and render
           const originalState = getToggleState(composeArea);
           setToggleState(composeArea, true);
           const hasChanges = detectAndRenderLatex(composeArea);
-          
           if (!hasChanges) {
-            // No LaTeX to render, restore state if needed
-            if (!originalState) {
-              setToggleState(composeArea, false);
-            }
+            if (!originalState) setToggleState(composeArea, false);
             resolve({ rendered: false, originalState });
             return;
           }
-          
-          // Wait for all images to load
           const images = composeArea.querySelectorAll('.tex-math-inline img, .tex-math-display img');
-          if (images.length === 0) {
-            resolve({ rendered: true, originalState });
-            return;
-          }
-          
-          let loadedCount = 0;
-          let errorCount = 0;
-          const totalImages = images.length;
-          
-          const checkComplete = () => {
-            if (loadedCount + errorCount >= totalImages) {
-              if (errorCount > 0) {
-                TeXForGmail.log(`Warning: ${errorCount} LaTeX images failed to load`);
-              }
+          if (images.length === 0) { resolve({ rendered: true, originalState }); return; }
+          let loaded = 0, errors = 0, total = images.length;
+          const check = () => {
+            if (loaded + errors >= total) {
+              if (errors > 0) TeXForGmail.log(`Warning: ${errors} LaTeX images failed to load`);
               resolve({ rendered: true, originalState });
             }
           };
-          
-          // Set up load/error handlers
           images.forEach(img => {
-            if (img.complete) {
-              loadedCount++;
-            } else {
-              const loadHandler = () => {
-                loadedCount++;
-                checkComplete();
-              };
-              const errorHandler = () => {
-                errorCount++;
-                TeXForGmail.log('LaTeX image failed to load:', img.src);
-                checkComplete();
-              };
-              img.addEventListener('load', loadHandler, { once: true });
-              img.addEventListener('error', errorHandler, { once: true });
+            if (img.complete) { loaded++; }
+            else {
+              img.addEventListener('load', () => { loaded++; check(); }, { once: true });
+              img.addEventListener('error', () => { errors++; TeXForGmail.log('LaTeX image failed to load:', img.src); check(); }, { once: true });
             }
           });
-          
-          checkComplete();
-          
-          // Timeout fallback (5 seconds max for image loading)
-          setTimeout(() => {
-            TeXForGmail.log('Image loading timeout - proceeding with send');
-            resolve({ rendered: true, originalState });
-          }, 5000);
-        } catch (error) {
-          TeXForGmail.log('Error in renderAndWaitForImages:', error);
-          reject(error);
-        }
+          check();
+          setTimeout(() => { TeXForGmail.log('Image loading timeout - proceeding with send'); resolve({ rendered: true, originalState }); }, 5000);
+        } catch (error) { TeXForGmail.log('Error in renderAndWaitForImages:', error); reject(error); }
       });
     };
-    
-    // Main interceptor function
+
     const interceptSend = async function(event) {
-      // Skip if this is our programmatic send
-      if (programmaticSendInProgress) {
-        TeXForGmail.log('Programmatic send in progress, not intercepting');
-        return;
-      }
-      
+      if (programmaticSendInProgress) { TeXForGmail.log('Programmatic send in progress, not intercepting'); return; }
       const target = event.target;
       const isKeyboard = event.type === 'keydown';
-      
-      // Detect send action
+
       let shouldIntercept = false;
       let sendButton = null;
       let composeArea = null;
-      
+
       if (isKeyboard) {
-        // Handle Ctrl+Enter or Cmd+Enter
         if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
           const activeElement = document.activeElement;
-          // Check if we're in a compose area
           if (activeElement && activeElement.getAttribute('contenteditable') === 'true') {
-            composeArea = activeElement;
-            shouldIntercept = true;
-            TeXForGmail.log('Keyboard send detected (Ctrl/Cmd+Enter)');
+            composeArea = activeElement; shouldIntercept = true; TeXForGmail.log('Keyboard send detected (Ctrl/Cmd+Enter)');
           }
         }
       } else {
-        // Handle click events - improved button detection
-        const possibleButton = target.closest('div[role="button"], button');
+        const possibleButton = target?.closest?.('div[role="button"], button');
         if (possibleButton) {
-          // Check multiple indicators for send button
-          const tooltip = possibleButton.getAttribute('data-tooltip') || '';
-          const ariaLabel = possibleButton.getAttribute('aria-label') || '';
-          const textContent = possibleButton.textContent || '';
-          
-          // Check if this is a send button
-          if (tooltip.includes('Send') || 
-              ariaLabel.includes('Send') || 
-              (textContent.includes('Send') && possibleButton.getAttribute('role') === 'button')) {
-            
-            sendButton = possibleButton;
-            // Find the compose area relative to the send button
-            const composeContainer = sendButton.closest('.M9, .AD, .aoI');
-            if (composeContainer) {
-              // Find the specific compose area in this container
-              composeArea = composeContainer.querySelector(
-                '[contenteditable="true"][g_editable="true"], ' +
-                '[contenteditable="true"][role="textbox"], ' +
-                'div[aria-label*="Message Body"]'
-              );
-            }
-            
-            if (composeArea) {
-              shouldIntercept = true;
-              TeXForGmail.log('Send button click detected');
+          // More precise send button detection - only match actual send buttons
+          const composeContainer = possibleButton.closest('.M9, .AD, .aoI');
+          if (composeContainer) {
+            // Find the actual send button in this compose window
+            const realSendButton = composeContainer.querySelector(
+              'div[role="button"][data-tooltip*="Send"], div[role="button"][aria-label*="Send"]'
+            );
+            // Only intercept if this is the actual send button
+            const looksLikeSend = realSendButton && (possibleButton === realSendButton);
+            if (looksLikeSend) {
+              sendButton = possibleButton;
+              composeArea = composeContainer.querySelector('[contenteditable="true"][g_editable="true"], [contenteditable="true"][role="textbox"], div[aria-label*="Message Body"]');
+              if (composeArea) { shouldIntercept = true; TeXForGmail.log('Send button click detected'); }
             }
           }
         }
       }
-      
-      // Process send interception if needed
-      if (shouldIntercept && composeArea) {
-        // Check if there's LaTeX content
-        const hasLatex = /\$[^$\n]+\$|\$\$[^$\n]+\$\$/.test(composeArea.textContent);
-        
-        if (hasLatex) {
-          // Get current settings
-          const settings = await TeXForGmail.getSettings();
-          const currentState = getToggleState(composeArea);
-          
-          // Determine what to do based on settings and toggle state
-          let shouldRender = false;
-          let userChoice = null;
-          
-          if (currentState) {
-            // Toggle is ON, LaTeX already rendered, allow normal send
-            TeXForGmail.log('LaTeX already rendered (toggle is ON), allowing normal send');
-            return;
-          }
-          
-          // Toggle is OFF, check send behavior setting
-          if (settings.sendBehavior === 'always') {
-            shouldRender = true;
-            TeXForGmail.log('Send behavior is "always", will render LaTeX');
-          } else if (settings.sendBehavior === 'never') {
+
+      if (!shouldIntercept || !composeArea) return;
+
+      const textContent = composeArea.textContent || '';
+      const hasLatexTokens = /\$\$[\s\S]*?\$\$|(?<!\$)\$([^\$\n]+?)\$|\\\(|\\\[|\\begin\{/.test(textContent);
+      const hasRenderedMath = !!composeArea.querySelector('.tex-math-inline, .tex-math-display');
+
+      if (!(hasLatexTokens || hasRenderedMath)) return; // allow send
+
+      const settings = await TeXForGmail.getSettings();
+      const toggleOn = getToggleState(composeArea);
+
+      // If toggle is ON or hasRenderedMath, ensure images are loaded before send
+      if (toggleOn || hasRenderedMath) {
+        event.preventDefault(); event.stopImmediatePropagation();
+        try {
+          await renderAndWaitForImages(composeArea);
+        } catch (_) {}
+        // trigger send
+        programmaticSendInProgress = true;
+        if (sendButton) {
+          const newClick = new MouseEvent('click', { bubbles: true, cancelable: true, view: window, buttons: 1 });
+          sendButton.dispatchEvent(newClick);
+        } else if (isKeyboard) {
+          const sendButtons = composeArea.closest('.M9, .AD, .aoI')?.querySelectorAll('[data-tooltip*="Send"], [aria-label*="Send"]');
+          if (sendButtons?.length > 0) sendButtons[0].click();
+        }
+        setTimeout(() => { programmaticSendInProgress = false; }, 1000);
+        return;
+      }
+
+      // Toggle is OFF: obey behavior (always/never/ask)
+      let shouldRender = false;
+      let userChoice = null;
+
+      if (settings.sendBehavior === 'always') {
+        shouldRender = true;
+        TeXForGmail.log('Send behavior is "always", will render LaTeX');
+      } else if (settings.sendBehavior === 'never') {
+        TeXForGmail.log('Send behavior is "never", sending without rendering');
+        return; // allow
+      } else {
+        if (settings.rememberSendChoice && settings.lastSendChoice) {
+          shouldRender = settings.lastSendChoice === 'render';
+          TeXForGmail.log(`Using remembered choice: ${settings.lastSendChoice}`);
+        } else {
+          event.preventDefault(); event.stopImmediatePropagation();
+          userChoice = await showSendDialog();
+          if (userChoice.action === 'cancel') { TeXForGmail.log('User cancelled send'); return; }
+          else if (userChoice.action === 'send_without_render') {
             shouldRender = false;
-            TeXForGmail.log('Send behavior is "never", sending without rendering');
-            return; // Allow send to proceed without rendering
-          } else if (settings.sendBehavior === 'ask') {
-            // Check if we have a remembered choice for this session
-            if (settings.rememberSendChoice && settings.lastSendChoice) {
-              shouldRender = settings.lastSendChoice === 'render';
-              TeXForGmail.log(`Using remembered choice: ${settings.lastSendChoice}`);
-            } else {
-              // Show dialog to ask user
-              TeXForGmail.log('Send behavior is "ask", showing dialog');
-              
-              // Prevent the original send
-              event.preventDefault();
-              event.stopImmediatePropagation();
-              
-              // Show dialog and wait for user choice
-              userChoice = await showSendDialog();
-              
-              // Handle user choice
-              if (userChoice.action === 'cancel') {
-                TeXForGmail.log('User cancelled send');
-                return;
-              } else if (userChoice.action === 'send_without_render') {
-                shouldRender = false;
-                if (userChoice.remember) {
-                  // Remember choice for this session
-                  settings.rememberSendChoice = true;
-                  settings.lastSendChoice = 'send_without';
-                  storageService.set({
-                    rememberSendChoice: true,
-                    lastSendChoice: 'send_without'
-                  });
-                }
-              } else if (userChoice.action === 'render_and_send') {
-                shouldRender = true;
-                if (userChoice.remember) {
-                  // Remember choice for this session
-                  settings.rememberSendChoice = true;
-                  settings.lastSendChoice = 'render';
-                  storageService.set({
-                    rememberSendChoice: true,
-                    lastSendChoice: 'render'
-                  });
-                }
-              }
-            }
+            if (userChoice.remember) { settings.rememberSendChoice = true; settings.lastSendChoice = 'send_without'; storageService.set({ rememberSendChoice: true, lastSendChoice: 'send_without' }); }
+          } else if (userChoice.action === 'render_and_send') {
+            shouldRender = true;
+            if (userChoice.remember) { settings.rememberSendChoice = true; settings.lastSendChoice = 'render'; storageService.set({ rememberSendChoice: true, lastSendChoice: 'render' }); }
           }
-          
-          if (shouldRender) {
-            TeXForGmail.log('Intercepting send to render LaTeX');
-            
-            // Prevent the original send if not already prevented
-            if (!userChoice) {
-              event.preventDefault();
-              event.stopImmediatePropagation();
-            }
-          
-          // Check if already processing this compose area
-          if (!TeXForGmail.sendProcessingStates) {
-            TeXForGmail.sendProcessingStates = new WeakMap();
+        }
+      }
+
+      if (shouldRender) {
+        if (!userChoice) { event.preventDefault(); event.stopImmediatePropagation(); }
+        if (!TeXForGmail.sendProcessingStates) TeXForGmail.sendProcessingStates = new WeakMap();
+        if (TeXForGmail.sendProcessingStates.get(composeArea)) { TeXForGmail.log('Already processing send for this compose area'); return; }
+        TeXForGmail.sendProcessingStates.set(composeArea, true);
+        try {
+          const result = await renderAndWaitForImages(composeArea);
+          programmaticSendInProgress = true;
+          if (sendButton) {
+            const newClick = new MouseEvent('click', { bubbles: true, cancelable: true, view: window, buttons: 1 });
+            sendButton.dispatchEvent(newClick);
+          } else if (isKeyboard) {
+            const sendButtons = composeArea.closest('.M9, .AD, .aoI')?.querySelectorAll('[data-tooltip*="Send"], [aria-label*="Send"]');
+            if (sendButtons?.length > 0) sendButtons[0].click();
           }
-          
-          if (TeXForGmail.sendProcessingStates.get(composeArea)) {
-            TeXForGmail.log('Already processing send for this compose area');
-            return;
-          }
-          
-          // Mark as processing
-          TeXForGmail.sendProcessingStates.set(composeArea, true);
-          
-          try {
-            // Render LaTeX and wait for images
-            const result = await renderAndWaitForImages(composeArea);
-            TeXForGmail.log('LaTeX rendering complete, proceeding with send');
-            
-            // Now trigger the actual send
-            programmaticSendInProgress = true;
-            
-            if (sendButton) {
-              // Use a new click event to trigger send
-              const newClickEvent = new MouseEvent('click', {
-                bubbles: true,
-                cancelable: true,
-                view: window,
-                buttons: 1
-              });
-              sendButton.dispatchEvent(newClickEvent);
-            } else if (isKeyboard) {
-              // For keyboard shortcut, find and click the send button
-              const sendButtons = composeArea.closest('.M9, .AD, .aoI')
-                ?.querySelectorAll('[data-tooltip*="Send"], [aria-label*="Send"]');
-              if (sendButtons && sendButtons.length > 0) {
-                sendButtons[0].click();
-              }
-            }
-            
-            // Schedule state restoration after send completes
-            setTimeout(() => {
-              programmaticSendInProgress = false;
-              TeXForGmail.sendProcessingStates.delete(composeArea);
-              
-              // Restore original state if compose area still exists and was OFF
-              if (!result.originalState && document.contains(composeArea)) {
-                TeXForGmail.log('Restoring LaTeX source after send');
-                setToggleState(composeArea, false);
-                restoreLatexSource(composeArea);
-              }
-            }, 2000);
-            
-          } catch (error) {
-            TeXForGmail.log('Error during send interception:', error);
-            // Clean up and allow send to proceed
+          setTimeout(() => {
             programmaticSendInProgress = false;
             TeXForGmail.sendProcessingStates.delete(composeArea);
-            
-            // Try to send anyway
-            if (sendButton) {
-              programmaticSendInProgress = true;
-              sendButton.click();
-              setTimeout(() => {
-                programmaticSendInProgress = false;
-              }, 500);
+            if (!result.originalState && document.contains(composeArea)) {
+              TeXForGmail.log('Restoring LaTeX source after send');
+              setToggleState(composeArea, false);
+              restoreLatexSource(composeArea);
             }
-          }
-          
-          // Handle send without render case
-          if (!shouldRender && userChoice && userChoice.action === 'send_without_render') {
-            // User chose to send without rendering
-            programmaticSendInProgress = true;
-            
-            if (sendButton) {
-              // Use a new click event to trigger send
-              const newClickEvent = new MouseEvent('click', {
-                bubbles: true,
-                cancelable: true,
-                view: window,
-                buttons: 1
-              });
-              sendButton.dispatchEvent(newClickEvent);
-            } else if (isKeyboard) {
-              // For keyboard shortcut, find and click the send button
-              const sendButtons = composeArea.closest('.M9, .AD, .aoI')
-                ?.querySelectorAll('[data-tooltip*="Send"], [aria-label*="Send"]');
-              if (sendButtons && sendButtons.length > 0) {
-                sendButtons[0].click();
-              }
-            }
-            
-            setTimeout(() => {
-              programmaticSendInProgress = false;
-            }, 1000);
+          }, 2000);
+        } catch (error) {
+          TeXForGmail.log('Error during send interception:', error);
+          programmaticSendInProgress = false;
+          TeXForGmail.sendProcessingStates.delete(composeArea);
+          if (sendButton) {
+            programmaticSendInProgress = true; sendButton.click();
+            setTimeout(() => { programmaticSendInProgress = false; }, 500);
           }
         }
+      } else if (userChoice && userChoice.action === 'send_without_render') {
+        programmaticSendInProgress = true;
+        if (sendButton) {
+          const newClick = new MouseEvent('click', { bubbles: true, cancelable: true, view: window, buttons: 1 });
+          sendButton.dispatchEvent(newClick);
+        } else if (isKeyboard) {
+          const sendButtons = composeArea.closest('.M9, .AD, .aoI')?.querySelectorAll('[data-tooltip*="Send"], [aria-label*="Send"]');
+          if (sendButtons?.length > 0) sendButtons[0].click();
+        }
+        setTimeout(() => { programmaticSendInProgress = false; }, 1000);
       }
     };
-    
-    // Listen for both click and keyboard events
-    // Store references for cleanup
+
     TeXForGmail.sendInterceptorClick = interceptSend;
     TeXForGmail.sendInterceptorKeydown = interceptSend;
     document.addEventListener('click', interceptSend, true);
     document.addEventListener('keydown', interceptSend, true);
-    
     TeXForGmail.log('Send interceptor initialized (click and keyboard)');
-  }
   };
 
-  // Comprehensive cleanup function
+  // === Cleanup ===
   TeXForGmail.cleanup = function() {
-    // Disconnect main observer
-    if (TeXForGmail.observer) {
-      TeXForGmail.observer.disconnect();
-      TeXForGmail.log('Main observer disconnected');
-    }
-    
-    // Remove keyboard handler
-    if (TeXForGmail.keyboardHandler) {
-      document.removeEventListener('keydown', TeXForGmail.keyboardHandler, true);
-      TeXForGmail.keyboardHandler = null;
-      TeXForGmail.log('Keyboard handler removed');
-    }
-    
-    // Disconnect More menu observer
-    if (TeXForGmail.moreMenuObserver) {
-      TeXForGmail.moreMenuObserver.disconnect();
-      TeXForGmail.moreMenuObserver = null;
-      TeXForGmail.log('More menu observer disconnected');
-    }
-    
-    // Remove send interceptor listeners
-    if (TeXForGmail.sendInterceptorClick) {
-      document.removeEventListener('click', TeXForGmail.sendInterceptorClick, true);
-      TeXForGmail.sendInterceptorClick = null;
-    }
-    if (TeXForGmail.sendInterceptorKeydown) {
-      document.removeEventListener('keydown', TeXForGmail.sendInterceptorKeydown, true);
-      TeXForGmail.sendInterceptorKeydown = null;
-    }
-    
-    // Remove chrome storage listener
+    if (TeXForGmail.observer) { TeXForGmail.observer.disconnect(); TeXForGmail.log('Main observer disconnected'); }
+    if (TeXForGmail.keyboardHandler) { document.removeEventListener('keydown', TeXForGmail.keyboardHandler, true); TeXForGmail.keyboardHandler = null; TeXForGmail.log('Keyboard handler removed'); }
+    if (TeXForGmail.moreMenuObserver) { TeXForGmail.moreMenuObserver.disconnect(); TeXForGmail.moreMenuObserver = null; TeXForGmail.log('More menu observer disconnected'); }
+    if (TeXForGmail.sendInterceptorClick) { document.removeEventListener('click', TeXForGmail.sendInterceptorClick, true); TeXForGmail.sendInterceptorClick = null; }
+    if (TeXForGmail.sendInterceptorKeydown) { document.removeEventListener('keydown', TeXForGmail.sendInterceptorKeydown, true); TeXForGmail.sendInterceptorKeydown = null; }
     if (TeXForGmail.storageChangeListener) {
-      chrome.storage.onChanged.removeListener(TeXForGmail.storageChangeListener);
+      try {
+        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged && typeof chrome.storage.onChanged.removeListener === 'function') {
+          chrome.storage.onChanged.removeListener(TeXForGmail.storageChangeListener);
+        }
+      } catch (_) { /* noop for file:// tests */ }
       TeXForGmail.storageChangeListener = null;
     }
-    
-    // Clean up all button event listeners
-    document.querySelectorAll('.tex-toggle-button').forEach(button => {
-      // Clone and replace to remove all event listeners
+    document.querySelectorAll('.tex-button').forEach(button => {
       const newButton = button.cloneNode(true);
-      if (button.parentNode) {
-        button.parentNode.replaceChild(newButton, button);
-      }
+      if (button.parentNode) button.parentNode.replaceChild(newButton, button);
     });
-    
-    // Remove any read-mode overlays
-    document.querySelectorAll('.tex-read-overlay').forEach(overlay => {
-      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
-    });
-    
-    // Disconnect all content observers (WeakMap doesn't have iteration, but observers will be GC'd)
-    if (TeXForGmail.composeObservers) {
-      TeXForGmail.composeObservers = new WeakMap();
-    }
-    
-    // Disconnect all removal observers
-    if (TeXForGmail.removalObservers) {
-      TeXForGmail.removalObservers = new WeakMap();
-    }
-    
-    // Clear all timeouts (WeakMap doesn't allow iteration, but timeouts will be cleared by browser)
+    document.querySelectorAll('.tex-read-overlay').forEach(overlay => { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); });
+    TeXForGmail.composeObservers = new WeakMap();
+    TeXForGmail.removalObservers = new WeakMap();
     TeXForGmail.renderTimeouts = new WeakMap();
-    
-    // Reset all WeakMaps to ensure clean state
     TeXForGmail.composeButtons = new WeakMap();
     TeXForGmail.processingStates = new WeakMap();
     TeXForGmail.toggleStates = new WeakMap();
     TeXForGmail.originalContent = new WeakMap();
     TeXForGmail.sendProcessingStates = new WeakMap();
     TeXForGmail.observerSetupFlags = new WeakMap();
-    
     TeXForGmail.log('Comprehensive cleanup completed');
   };
 
-  // Clean up on page unload
-  window.addEventListener('beforeunload', () => {
-    TeXForGmail.cleanup();
-  });
-  
-  // Also clean up on navigation (single-page app navigation)
+  window.addEventListener('beforeunload', () => { TeXForGmail.cleanup(); });
   window.addEventListener('popstate', () => {
     TeXForGmail.log('Navigation detected, performing cleanup');
-    // Find all compose areas and clean them up
     const composeAreas = document.querySelectorAll(CONFIG.composeSelectors.join(','));
-    composeAreas.forEach(composeArea => {
-      performComprehensiveCleanup(composeArea);
-    });
+    composeAreas.forEach(composeArea => { performComprehensiveCleanup(composeArea); });
   });
 
-  // Listen for settings changes from options page
   TeXForGmail.storageChangeListener = (changes, areaName) => {
     if (areaName === 'sync' || areaName === 'local') {
-      // Update cached settings
-      for (const key in changes) {
-        if (TeXForGmail.settings) {
-          TeXForGmail.settings[key] = changes[key].newValue;
-        }
+      for (const key in changes) { if (TeXForGmail.settings) TeXForGmail.settings[key] = changes[key].newValue; }
+      if (changes.dpiInline) CONFIG.dpi.inline = changes.dpiInline.newValue;
+      if (changes.dpiDisplay) CONFIG.dpi.display = changes.dpiDisplay.newValue;
+      if (changes.renderServer) TeXForGmail.serverPreference = changes.renderServer.newValue;
+      if (changes.enableNaiveTeX) { TeXForGmail.naiveTexMode = changes.enableNaiveTeX.newValue; TeXForGmail.log(`Naive TeX mode ${TeXForGmail.naiveTexMode ? 'enabled' : 'disabled'}`); }
+      if (changes.showCopyLatex && changes.showCopyLatex.newValue === false) { try { hideCopyButton(); } catch (_) {} }
+      if (changes.maxApiCallsPerMinute) CONFIG.maxApiCallsPerMinute = changes.maxApiCallsPerMinute.newValue;
+      if (changes.debounceDelay) {
+        CONFIG.debounceDelay = changes.debounceDelay.newValue;
+        CONFIG.renderDebounceDelay = changes.debounceDelay.newValue;
       }
-      
-      // Apply relevant changes immediately
-      if (changes.dpiInline) {
-        CONFIG.dpi.inline = changes.dpiInline.newValue;
-      }
-      if (changes.dpiDisplay) {
-        CONFIG.dpi.display = changes.dpiDisplay.newValue;
-      }
-      if (changes.renderServer) {
-        TeXForGmail.serverPreference = changes.renderServer.newValue;
-      }
-      if (changes.enableNaiveTeX) {
-        TeXForGmail.naiveTexMode = changes.enableNaiveTeX.newValue;
-        TeXForGmail.log(`Naive TeX mode ${changes.enableNaiveTeX.newValue ? 'enabled' : 'disabled'}`);
-      }
-      // If Copy LaTeX was toggled off while visible, hide overlay immediately (QA Story 4.5)
-      if (changes.showCopyLatex && changes.showCopyLatex.newValue === false) {
-        try { hideCopyButton(); } catch (_) {}
-      }
-      
       TeXForGmail.log('Settings updated from options page:', changes);
     }
   };
-  if (typeof chrome !== 'undefined' && chrome.storage) {
-    chrome.storage.onChanged.addListener(TeXForGmail.storageChangeListener);
-  }
-  
-  // Listen for messages from options page
+  if (typeof chrome !== 'undefined' && chrome.storage) chrome.storage.onChanged.addListener(TeXForGmail.storageChangeListener);
+
   if (typeof chrome !== 'undefined' && chrome.runtime) {
-    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    chrome.runtime.onMessage.addListener((request, _sender, _sendResponse) => {
       if (request.type === 'SETTINGS_UPDATED') {
         TeXForGmail.settings = request.settings;
         TeXForGmail.log('Settings updated via message:', request.settings);
@@ -4402,19 +2403,12 @@
     });
   }
 
-  // Initialize when DOM is ready
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => TeXForGmail.init());
-  } else {
-    TeXForGmail.init();
-  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => TeXForGmail.init());
+  else TeXForGmail.init();
 
-  // Expose functions for testing when running in test environment
-  // This is only for test pages, not for production use
+  // Expose functions for testing on test pages
   if (window.location.pathname.includes('test') || window.location.pathname.includes('Test')) {
     console.log('TeX for Gmail: Test mode detected, exposing functions globally');
-    
-    // Expose main objects and functions for testing
     window.TeXForGmail = TeXForGmail;
     window.ServerHealth = ServerHealth;
     window.detectAndRenderLatex = detectAndRenderLatex;
@@ -4424,17 +2418,13 @@
     window.detectNaiveTeX = detectNaiveTeX;
     window.sanitizeForHTML = sanitizeForHTML;
     window.showToast = showToast;
-    
-    // Expose configuration for testing
     window.CONFIG = CONFIG;
-    
-    console.log('TeX for Gmail: Test functions exposed:', {
-      TeXForGmail: !!window.TeXForGmail,
-      ServerHealth: !!window.ServerHealth,
-      detectAndRenderLatex: !!window.detectAndRenderLatex,
-      switchServerSafely: !!window.switchServerSafely,
-      createMathWrapper: !!window.createMathWrapper
-    });
+    window.getToggleState = getToggleState;
+    window.findTextNodes = findTextNodes;
+    window.createTheoremWrapper = createTheoremWrapper;
+    window.performComprehensiveCleanup = performComprehensiveCleanup;
+    window.copyTextToClipboard = copyTextToClipboard;
+    console.log('TeX for Gmail: Test functions exposed');
   }
 
 })();

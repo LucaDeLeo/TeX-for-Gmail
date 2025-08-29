@@ -46,6 +46,23 @@
 - Add "More" menu integration for reading emails
 - Ensure all modes work in both compose and read contexts
 
+**Story 4.3: Feature Parity — Click-to-Edit, TeX Shortcuts & UI Settings**
+- Add click-to-edit on rendered images to restore exact source
+- Add Ctrl+Shift template insertion shortcuts (frac, sqrt, integral, matrix, etc.)
+- Add Options toggles for Naive TeX and Simple Math with persistence
+- Ensure integration with continuous modes and settings changes
+
+**Story 4.4: Settings Import/Export (Options Page)**
+- Export JSON with `_meta` {version, exportedAt} and recognized `settings`
+- Import with validation/sanitization and inline preview (Apply/Cancel)
+- Accessibility, focus management, and propagation to content scripts
+- No new permissions; local-only operations
+
+**Story 4.5: Copy LaTeX Source & Context Menu**
+- Provide Copy LaTeX via hover button and right-click menu
+- Clipboard API with fallback; keyboard accessible with announcements
+- Option to enable/disable; supports Rich Math and Simple Math
+
 ## Implementation Notes:
 - **Priority:** Story 3.1 should be implemented first to fix critical user-reported issues
 - Each story delivers meaningful user value independently
