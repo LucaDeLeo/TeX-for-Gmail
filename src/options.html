@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://latex.codecogs.com https://s.wordpress.com; font-src 'self' data:; connect-src 'self' https://latex.codecogs.com https://s.wordpress.com; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://latex.codecogs.com https://s0.wp.com https://s.wordpress.com; font-src 'self' data:; connect-src 'self' https://latex.codecogs.com https://s0.wp.com https://s.wordpress.com; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests;">
     <title>TeX for Gmail Options</title>
     <style>
         * {
@@ -514,7 +514,7 @@
                         </div>
                         <div class="preview-label">Preview:</div>
                         <div class="preview-area">
-                            <img id="inlinePreview" class="preview-equation" alt="Inline equation preview">
+                            <img id="inlinePreview" class="preview-equation" referrerpolicy="no-referrer" alt="Inline equation preview">
                         </div>
                     </div>
 
@@ -527,7 +527,7 @@
                         </div>
                         <div class="preview-label">Preview:</div>
                         <div class="preview-area">
-                            <img id="displayPreview" class="preview-equation" alt="Display equation preview">
+                            <img id="displayPreview" class="preview-equation" referrerpolicy="no-referrer" alt="Display equation preview">
                         </div>
                     </div>
                 </section>
@@ -577,6 +577,16 @@
                             <input type="checkbox" id="showReadButton" name="showReadButton" checked>
                             <span class="checkbox-label">Show TeX button in read mode</span>
                         </label>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="checkbox-group">
+                            <input type="checkbox" id="autoRenderOnCompose" name="autoRenderOnCompose" checked>
+                            <span class="checkbox-label">Automatically render LaTeX while composing</span>
+                        </label>
+                        <div class="radio-description" style="margin-left: 30px; margin-top: 4px;">
+                            When enabled, the compose area starts in ON state and re-renders as you type.
+                        </div>
                     </div>
 
                     <div class="form-group">

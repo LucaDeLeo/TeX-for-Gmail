@@ -26,6 +26,7 @@ const DEFAULT_SETTINGS = {
     enableNaiveTeX: false,
     enableSimpleMath: true,
     enableAbbreviations: false,
+    autoRenderOnCompose: true,
     
     // Advanced
     maxApiCallsPerMinute: 60,
@@ -365,6 +366,8 @@ function populateForm(settings) {
     const copyToggle = document.getElementById('showCopyLatex');
     if (copyToggle) copyToggle.checked = !!settings.showCopyLatex;
     document.getElementById('enableKeyboardShortcuts').checked = settings.enableKeyboardShortcuts;
+    const autoRender = document.getElementById('autoRenderOnCompose');
+    if (autoRender) autoRender.checked = settings.autoRenderOnCompose !== false;
     
     // Advanced features
     document.getElementById('enableNaiveTeX').checked = settings.enableNaiveTeX;
@@ -387,7 +390,8 @@ function getFormValues() {
         enableKeyboardShortcuts: document.getElementById('enableKeyboardShortcuts').checked,
         enableNaiveTeX: document.getElementById('enableNaiveTeX').checked,
         enableSimpleMath: document.getElementById('enableSimpleMath').checked,
-        enableAbbreviations: document.getElementById('enableAbbreviations').checked
+        enableAbbreviations: document.getElementById('enableAbbreviations').checked,
+        autoRenderOnCompose: (document.getElementById('autoRenderOnCompose')?.checked) !== false
     };
     
     // Preserve other settings not in the form and override with form values
@@ -914,13 +918,6 @@ function showWarning(message) {
 
 // Notify all tabs about settings change
 function notifySettingsChange(settings) {
-    // Best-effort runtime broadcast (does not require 'tabs' permission)
-    try {
-        if (chrome.runtime && typeof chrome.runtime.sendMessage === 'function') {
-            try { chrome.runtime.sendMessage({ type: 'SETTINGS_UPDATED', settings }); } catch (_) { /* no-op */ }
-        }
-    } catch (_) { /* no-op */ }
-
     // Only use tabs messaging if the extension explicitly declares the 'tabs' permission
     try {
         const manifest = chrome.runtime && chrome.runtime.getManifest ? chrome.runtime.getManifest() : null;

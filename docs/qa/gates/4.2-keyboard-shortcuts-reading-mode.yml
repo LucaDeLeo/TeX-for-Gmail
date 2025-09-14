@@ -1,0 +1,98 @@
+schema: 1
+story: '4.2'
+story_title: 'Keyboard Shortcuts & Reading Mode'
+gate: CONCERNS
+status_reason: 'All 8 acceptance criteria implemented with partial Playwright verification. Gmail runtime testing remains incomplete'
+reviewer: 'Quinn (Test Architect)'
+updated: '2025-08-29T21:30:00Z'
+
+top_issues:
+  - issue: 'Gmail runtime testing incomplete'
+    severity: medium
+    refs: ['tests/test-story-4.2.html', 'docs/qa/test-reports/story-4.2-playwright-test-2025-08-29.md']
+    suggested_owner: dev
+    notes: 'Settings and documentation verified via Playwright, but runtime behavior in Gmail needs verification'
+  
+  - issue: 'Extension injection required for full testing'
+    severity: low
+    refs: ['tests/test-story-4.2.html']
+    suggested_owner: dev
+    notes: 'Test infrastructure exists but requires extension context for keyboard event handling'
+
+waiver:
+  active: false
+
+quality_score: 85
+
+expires: '2025-09-12T12:00:00Z'
+
+evidence:
+  tests_reviewed: 2
+  risks_identified: 2
+  playwright_testing:
+    date: '2025-08-29'
+    verified:
+      - 'Options page keyboard shortcuts documentation'
+      - 'Settings toggles functionality'
+      - 'Naive TeX detection toggle'
+      - 'Read mode button toggle'
+      - 'Template shortcuts documentation'
+    unable_to_verify:
+      - 'Runtime keyboard event handling'
+      - 'Reading mode overlay rendering'
+      - 'More menu injection'
+      - 'Context-aware shortcut targeting'
+  trace:
+    ac_covered: [1, 2, 3, 4, 5, 6, 7, 8]
+    ac_gaps: []
+
+nfr_validation:
+  security:
+    status: PASS
+    notes: 'Proper event handling, media sanitization in overlays prevents tracker double-loading'
+  performance:
+    status: PASS
+    notes: 'WeakMap usage, debouncing, lazy loading, one-time rendering flags all optimal'
+  reliability:
+    status: PASS
+    notes: 'Comprehensive error handling with try-catch blocks and proper cleanup'
+  maintainability:
+    status: PASS
+    notes: 'Well-structured modular code with good logging and clear separation of concerns'
+
+recommendations:
+  immediate:
+    - action: 'Complete Gmail environment testing for all features'
+      refs: ['Reading mode button', 'More menu integration', 'Keyboard shortcuts in Gmail']
+      
+  future:
+    - action: 'Add automated test coverage'
+      refs: ['tests/test-story-4.2.html']
+    - action: 'Extract keyboard shortcut mappings to configuration'
+      refs: ['src/content.js:2043-2089']
+    - action: 'Add performance metrics for overlay rendering'
+      refs: ['src/content.js:432-450']
+
+implementation_highlights:
+  - 'Non-destructive overlay rendering preserves original email content'
+  - 'WeakMap usage prevents memory leaks for button references'
+  - 'Proper isolation between compose and read modes'
+  - 'All settings dynamically honored with real-time updates'
+  - 'Toast notifications provide clear user feedback'
+
+code_locations:
+  keyboard_handler: 'src/content.js:2039-2089'
+  single_pass_rendering: 'src/content.js:2102-2126'
+  reading_mode_detection: 'src/content.js:1932-1949'
+  read_mode_button: 'src/content.js:1951-1980'
+  more_menu_integration: 'src/content.js:1999-2037'
+  naive_tex_activation: 'src/content.js:504-505, 2456'
+  overlay_rendering: 'src/content.js:396-450'
+
+test_coverage:
+  manual_tests: 'tests/test-story-4.2.html'
+  automated_tests: 'none'
+  coverage_type: 'HTML mockup with JavaScript utilities'
+  
+documentation_corrections:
+  - 'Task 5 checkbox corrected from unchecked to checked - implementation exists'

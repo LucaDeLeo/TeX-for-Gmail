@@ -9,7 +9,7 @@
       '[g_editable="true"]',
       '[contenteditable="true"][role="textbox"]',
       '.editable[contenteditable="true"]',
-      'div[aria-label*="Message Body"]'
+      'div[aria-label*="Message Body"]' // Keep as last fallback for test harness; prefer non-localized selectors above
     ],
     observerConfig: { childList: true, subtree: true },
     debounceDelay: 100,            // For DOM observer; updated from settings
@@ -410,6 +410,8 @@
     getReadOverlay(emailContainer) {
       const computed = window.getComputedStyle(emailContainer);
       if (!['relative','absolute','fixed','sticky'].includes(computed.position)) {
+        const prev = emailContainer.getAttribute('data-tex-prev-position') ?? '';
+        if (!prev) emailContainer.setAttribute('data-tex-prev-position', emailContainer.style.position || '');
         emailContainer.style.position = 'relative';
       }
       let overlay = emailContainer.querySelector('.tex-read-overlay');
@@ -427,6 +429,11 @@
     removeReadOverlay(emailContainer) {
       const overlay = emailContainer.querySelector('.tex-read-overlay');
       if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      const prev = emailContainer.getAttribute('data-tex-prev-position');
+      if (prev !== null) {
+        emailContainer.style.position = prev;
+        emailContainer.removeAttribute('data-tex-prev-position');
+      }
     },
 
     async renderReadOverlay(emailContainer) {
@@ -536,16 +543,27 @@
   // Removed unused function cleanupToggleState - cleanup handled by performComprehensiveCleanup
 
   // === Button Visual State Management ===
+  function ensureButtonStyles() {
+    if (document.getElementById('tex-button-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'tex-button-styles';
+    style.textContent = `
+      .tex-button { background:#9e9e9e !important; color:white !important; }
+      .tex-button.is-active { background:#4CAF50 !important; }
+    `;
+    document.head.appendChild(style);
+  }
   function updateButtonVisualState(button, isActive) {
+    ensureButtonStyles();
     if (isActive) {
       button.setAttribute('data-toggle-state', 'active');
       button.setAttribute('data-tooltip', 'LaTeX rendering is ON - Click to toggle OFF');
-      button.style.background = '#4CAF50';
+      button.classList.add('is-active');
       button.innerHTML = '📐 TeX ON';
     } else {
       button.setAttribute('data-toggle-state', 'inactive');
       button.setAttribute('data-tooltip', 'LaTeX rendering is OFF - Click to toggle ON');
-      button.style.background = '#9e9e9e';
+      button.classList.remove('is-active');
       button.innerHTML = '📐 TeX OFF';
     }
   }
@@ -559,34 +577,77 @@
     return null;
   }
 
-  // === Robust restore function (reconstruct from wrappers first) ===
+  // === Robust restore function (reconstruct from all wrappers) ===
   function restoreLatexSource(composeArea) {
     if (!composeArea || !composeArea.isConnected) {
       TeXForGmail.log('Warning: Invalid compose area for restore operation');
       return false;
     }
-    // First choice: reconstruct from current math wrappers/images
-    const mathImgs = composeArea.querySelectorAll('.tex-math-inline img, .tex-math-display img');
-    if (mathImgs.length > 0) {
-      let restored = 0;
-      mathImgs.forEach(img => {
-        const source = img.getAttribute('data-original-source') || img.alt || extractSourceFromElement(img);
-        if (!source) return;
-        const wrapper = img.closest('.tex-math-inline, .tex-math-display') || img;
+
+    const wrappers = composeArea.querySelectorAll('.tex-math-inline, .tex-math-display, .tex-render-error, .tex-theorem-env, .simple-math');
+    const strayImgs = Array.from(composeArea.querySelectorAll('img.tex-rendered'))
+      .filter(img => !img.closest('.tex-math-inline, .tex-math-display'));
+    if ((!wrappers || wrappers.length === 0) && strayImgs.length === 0) {
+      TeXForGmail.log('No math wrappers/images found; skipping snapshot restore to preserve edits');
+      return false;
+    }
+
+    const unmask = (s) => typeof s === 'string' ? s.replace(/__ESCAPED_DOLLAR_[A-Za-z0-9]+__/g, '\\$') : s;
+    let restored = 0;
+
+    wrappers.forEach(w => {
+      if (!w || !w.isConnected) return;
+
+      // 1) Prefer explicit source attributes on the wrapper
+      let source = w.getAttribute && (w.getAttribute('data-original-source') || w.getAttribute('data-tex-source'));
+
+      // 2) If wrapper contains an <img>, use its metadata
+      if (!source && w.querySelector) {
+        const img = w.querySelector('img');
+        if (img) {
+          source = img.getAttribute('data-original-source') || img.alt || extractSourceFromElement(img);
+        }
+      }
+
+      // 3) If Simple Math wrapper: reconstruct from data-latex
+      if (!source && (w.classList?.contains('tex-math-inline') || w.classList?.contains('tex-math-display') || w.classList?.contains('simple-math'))) {
+        const latex = w.getAttribute('data-latex');
+        if (latex) {
+          const isDisplay = w.classList.contains('tex-math-display') || (w.getAttribute('data-display') === 'block');
+          source = isDisplay ? `$$${latex}$$` : `$${latex}$`;
+        } else if (w.classList?.contains('simple-math')) {
+          // Legacy simple-math fallback from text when no data-latex is present
+          const content = (w.textContent || '').trim();
+          if (content) source = `$${content}$`;
+        }
+      }
+
+      // 4) If theorem wrapper and no stored string, best-effort rebuild
+      if (!source && w.classList?.contains('tex-theorem-env')) {
+        const type = w.getAttribute('data-theorem-type') || 'theorem';
+        const text = (w.querySelector?.('.tex-theorem-content')?.textContent || '');
+        source = `\begin{${type}}${text}\end{${type}}`;
+      }
+
+      if (source) {
+        source = unmask(source);
         const node = document.createTextNode(source);
-        if (wrapper.parentNode) {
-          wrapper.parentNode.replaceChild(node, wrapper);
+        if (w.parentNode) {
+          w.parentNode.replaceChild(node, w);
           restored++;
         }
-      });
-      if (restored > 0) {
-        composeArea.normalize();
-        TeXForGmail.log(`Restored ${restored} LaTeX sources from current wrappers`);
-        return true;
       }
-    }
-    // No wrappers → leave content as-is to avoid overwriting user edits.
-    TeXForGmail.log('No math wrappers found; skipping snapshot restore to preserve edits');
+    });
+
+    // Handle stray rendered images not wrapped in our math spans
+    strayImgs.forEach(img => {
+      const source = img.getAttribute('data-original-source') || img.alt || extractSourceFromElement(img);
+      if (!source) return;
+      const node = document.createTextNode(unmask(source));
+      if (img.parentNode) { img.parentNode.replaceChild(node, img); restored++; }
+    });
+
+    if (restored > 0) { composeArea.normalize(); return true; }
     return false;
   }
 
@@ -758,8 +819,8 @@
   }
 
   const ServerHealth = { 
-    codecogs: { failures: 0, lastCheck: 0, consecutiveFailures: 0 }, 
-    wordpress: { failures: 0, lastCheck: 0, consecutiveFailures: 0 }, 
+    codecogs: { failures: 0, lastFailure: 0, consecutiveFailures: 0 }, 
+    wordpress: { failures: 0, lastFailure: 0, consecutiveFailures: 0 }, 
     resetThreshold: 300000, // 5 minutes
     maxFailures: 3,
     getUserMessage() {
@@ -786,15 +847,17 @@
       if (this[server]) {
         this[server].failures++;
         this[server].consecutiveFailures++;
-        this[server].lastCheck = Date.now();
+        this[server].lastFailure = Date.now();
       }
     }
   };
   function checkServerHealth(server) {
     const now = Date.now();
     const health = ServerHealth[server];
-    if (now - health.lastCheck > ServerHealth.resetThreshold) health.failures = 0;
-    health.lastCheck = now;
+    if (health.lastFailure && (now - health.lastFailure > ServerHealth.resetThreshold)) {
+      health.failures = 0;
+      health.consecutiveFailures = 0;
+    }
     return health.failures < ServerHealth.maxFailures;
   }
   function switchServerSafely(newServer, reason = '') {
@@ -940,13 +1003,23 @@
     
     const img = document.createElement('img');
     img.src = imgUrl || '';
-    img.alt = isDisplay ? `$$${latex}$$` : `$${latex}$`;
-    img.title = `LaTeX: ${img.alt}`;
+    const unmask = (s) => typeof s === 'string' ? s.replace(/__ESCAPED_DOLLAR_[A-Za-z0-9]+__/g, '\\$') : s;
+    const rawAlt = isDisplay ? `$$${latex}$$` : `$${latex}$`;
+    const altSource = unmask(rawAlt);
+    const maxLen = 200;
+    const trimmedAlt = altSource.length > maxLen ? (altSource.slice(0, maxLen - 1) + '…') : altSource;
+    img.alt = trimmedAlt;
+    img.title = `LaTeX: ${trimmedAlt}`;
     if ('dataset' in img) {
       img.setAttribute('data-latex', latex);
       img.setAttribute('data-display', isDisplay ? 'block' : 'inline');
       img.setAttribute('data-timestamp', Date.now().toString());
-      img.setAttribute('data-version', '1.0.0');
+      try {
+        const v = (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getManifest) ? (chrome.runtime.getManifest().version || '') : '';
+        img.setAttribute('data-version', v || '1.2.0');
+      } catch (_) {
+        img.setAttribute('data-version', '1.2.0');
+      }
     } else {
       img.setAttribute('tex-latex', latex);
       img.setAttribute('tex-display', isDisplay ? 'block' : 'inline');
@@ -960,7 +1033,7 @@
     img.setAttribute('role', 'button');
     img.setAttribute('aria-label', 'Click to edit LaTeX source');
     img.setAttribute('tabindex', '0');
-    img.setAttribute('data-original-source', isDisplay ? `$$${latex}$$` : `$${latex}$`);
+    img.setAttribute('data-original-source', altSource);
 
     // Enhanced error handling with retry and fallback
     let retryCount = 0;
@@ -1258,8 +1331,12 @@
           const frag = document.createDocumentFragment();
           while ((m = envRegex.exec(text)) !== null) {
             if (m.index > last) frag.appendChild(document.createTextNode(text.substring(last, m.index).replace(new RegExp(ESCAPED_DOLLAR_PLACEHOLDER, 'g'), '$')));
-            const el = createTheoremWrapper(m[1], m[2], m[3]);
+            const contentUnmasked = hasEscapedDollar ? m[3].replace(new RegExp(ESCAPED_DOLLAR_PLACEHOLDER, 'g'), '$') : m[3];
+            const el = createTheoremWrapper(m[1], m[2], contentUnmasked);
             if (el) {
+              // Preserve original environment source (unmasked) for perfect restoration
+              const originalEnv = hasEscapedDollar ? m[0].replace(new RegExp(ESCAPED_DOLLAR_PLACEHOLDER, 'g'), '\\$') : m[0];
+              el.setAttribute('data-original-source', originalEnv);
               frag.appendChild(el);
               const contentDiv = el.querySelector('.tex-theorem-content');
               if (contentDiv) detectAndRenderLatex(contentDiv, { oneTimeRender: true });
@@ -1344,7 +1421,7 @@
           let mathElement = null;
           // Choose rendering mode
           if ((m.isNaive || TeXForGmail.simpleMode) && (TeXForGmail.settings?.enableSimpleMath)) {
-            mathElement = renderSimpleMath(m.latex, m.type === 'display', opts);
+            mathElement = renderSimpleMath(m.latex, m.type === 'display', { isReadMode });
           } else {
             // Image-based render with enhanced fallback
             let imgUrl = null;
@@ -1370,7 +1447,7 @@
             
             // If still no URL (rate-limited or validation failed), use Simple Math fallback
             if (!imgUrl && TeXForGmail.settings?.enableSimpleMath) {
-              mathElement = renderSimpleMath(m.latex, m.type === 'display', opts);
+              mathElement = renderSimpleMath(m.latex, m.type === 'display', { isReadMode });
               if (mathElement) {
                 TeXForGmail.log('Using Simple Math fallback due to server unavailability');
                 // Only show toast occasionally to avoid spam
@@ -1464,19 +1541,31 @@
   }
 
   // === Toasts & a11y ===
-  // Toast spam control - track last toast time and message
+  // Toast spam control - track last toast time, message, and category
   let lastToastTime = 0;
   let lastToastMessage = '';
-  const TOAST_COOLDOWN = 500; // Minimum 500ms between toasts
-  
+  let lastToastCategory = '';
+  const TOAST_COOLDOWN = 500; // Minimum 500ms between identical toasts
+  const TOAST_CATEGORY_COOLDOWN = 2000; // Coalesce related messages within 2s
+
+  function categorizeToast(message) {
+    const m = message.toLowerCase();
+    if (m.includes('server') || m.includes('backup') || m.includes('retry') || m.includes('offline')) return 'server';
+    if (m.includes('render')) return 'render';
+    if (m.includes('copy')) return 'clipboard';
+    return 'other';
+  }
+
   function showToast(message, type = 'info') {
     const now = Date.now();
-    // Prevent toast spam - skip if same message shown recently
-    if (message === lastToastMessage && (now - lastToastTime) < TOAST_COOLDOWN) {
-      return;
-    }
+    const category = categorizeToast(message);
+    // Prevent immediate repeats
+    if (message === lastToastMessage && (now - lastToastTime) < TOAST_COOLDOWN) return;
+    // Coalesce within category to reduce noise
+    if (category === lastToastCategory && (now - lastToastTime) < TOAST_CATEGORY_COOLDOWN) return;
     lastToastTime = now;
     lastToastMessage = message;
+    lastToastCategory = category;
     
     const existing = document.querySelector('.tex-toast'); if (existing) existing.remove();
     const toast = document.createElement('div');
@@ -1735,7 +1824,7 @@
     button.setAttribute('aria-label', 'Toggle LaTeX rendering');
     button.setAttribute('data-tooltip', 'LaTeX rendering is OFF - Click to toggle ON');
     button.setAttribute('data-toggle-state', 'inactive');
-    button.style.cssText = 'display:inline-flex !important; align-items:center; justify-content:center; user-select:none; margin:0 8px; cursor:pointer; padding:6px 12px; background:#9e9e9e; color:white; border-radius:4px; font-weight:bold; font-size:14px; height:30px; vertical-align:middle;';
+    button.style.cssText = 'display:inline-flex !important; align-items:center; justify-content:center; user-select:none; margin:0 8px; cursor:pointer; padding:6px 12px; border-radius:4px; font-weight:bold; font-size:14px; height:30px; vertical-align:middle;';
     button.innerHTML = '📐 TeX OFF';
     return button;
   }
@@ -1765,7 +1854,7 @@
           });
         } else {
           button.style.cursor = 'pointer'; button.style.opacity = '1';
-          button.textContent = '📐 TeX OFF'; button.style.background = '#9e9e9e';
+          button.textContent = '📐 TeX OFF'; button.classList.remove('is-active');
           showToast('Could not find compose area. Please try again.', 'error');
           reject(new Error('Compose area not found'));
         }
@@ -2279,18 +2368,16 @@
       } else {
         const possibleButton = target?.closest?.('div[role="button"], button');
         if (possibleButton) {
-          // More precise send button detection - only match actual send buttons
           const composeContainer = possibleButton.closest('.M9, .AD, .aoI');
           if (composeContainer) {
-            // Find the actual send button in this compose window
-            const realSendButton = composeContainer.querySelector(
-              'div[role="button"][data-tooltip*="Send"], div[role="button"][aria-label*="Send"]'
-            );
-            // Only intercept if this is the actual send button
-            const looksLikeSend = realSendButton && (possibleButton === realSendButton);
-            if (looksLikeSend) {
-              sendButton = possibleButton;
-              composeArea = composeContainer.querySelector('[contenteditable="true"][g_editable="true"], [contenteditable="true"][role="textbox"], div[aria-label*="Message Body"]');
+            // Prefer locale-agnostic class-based send button (Gmail uses .aoO on Send)
+            const classSend = composeContainer.querySelector('.aoO');
+            const attrSend = composeContainer.querySelector('div[role="button"][data-tooltip*="Send"], div[role="button"][aria-label*="Send"]');
+            const realSendButton = classSend || attrSend;
+            const isSend = !!(realSendButton && (possibleButton === realSendButton || possibleButton.closest('.aoO') === realSendButton));
+            if (isSend) {
+              sendButton = realSendButton;
+              composeArea = composeContainer.querySelector('[contenteditable="true"][g_editable="true"], [contenteditable="true"][role="textbox"], [contenteditable="true"]');
               if (composeArea) { shouldIntercept = true; TeXForGmail.log('Send button click detected'); }
             }
           }
@@ -2320,8 +2407,13 @@
           const newClick = new MouseEvent('click', { bubbles: true, cancelable: true, view: window, buttons: 1 });
           sendButton.dispatchEvent(newClick);
         } else if (isKeyboard) {
-          const sendButtons = composeArea.closest('.M9, .AD, .aoI')?.querySelectorAll('[data-tooltip*="Send"], [aria-label*="Send"]');
-          if (sendButtons?.length > 0) sendButtons[0].click();
+          const cc = composeArea.closest('.M9, .AD, .aoI');
+          const classSend = cc?.querySelector?.('.aoO');
+          if (classSend) classSend.click();
+          else {
+            const sendButtons = cc?.querySelectorAll?.('[data-tooltip*="Send"], [aria-label*="Send"]');
+            if (sendButtons?.length > 0) sendButtons[0].click();
+          }
         }
         setTimeout(() => { programmaticSendInProgress = false; }, 1000);
         return;
@@ -2367,8 +2459,13 @@
             const newClick = new MouseEvent('click', { bubbles: true, cancelable: true, view: window, buttons: 1 });
             sendButton.dispatchEvent(newClick);
           } else if (isKeyboard) {
-            const sendButtons = composeArea.closest('.M9, .AD, .aoI')?.querySelectorAll('[data-tooltip*="Send"], [aria-label*="Send"]');
-            if (sendButtons?.length > 0) sendButtons[0].click();
+            const cc = composeArea.closest('.M9, .AD, .aoI');
+            const classSend = cc?.querySelector?.('.aoO');
+            if (classSend) classSend.click();
+            else {
+              const sendButtons = cc?.querySelectorAll?.('[data-tooltip*="Send"], [aria-label*="Send"]');
+              if (sendButtons?.length > 0) sendButtons[0].click();
+            }
           }
           setTimeout(() => {
             programmaticSendInProgress = false;
@@ -2394,8 +2491,13 @@
           const newClick = new MouseEvent('click', { bubbles: true, cancelable: true, view: window, buttons: 1 });
           sendButton.dispatchEvent(newClick);
         } else if (isKeyboard) {
-          const sendButtons = composeArea.closest('.M9, .AD, .aoI')?.querySelectorAll('[data-tooltip*="Send"], [aria-label*="Send"]');
-          if (sendButtons?.length > 0) sendButtons[0].click();
+          const cc = composeArea.closest('.M9, .AD, .aoI');
+          const classSend = cc?.querySelector?.('.aoO');
+          if (classSend) classSend.click();
+          else {
+            const sendButtons = cc?.querySelectorAll?.('[data-tooltip*="Send"], [aria-label*="Send"]');
+            if (sendButtons?.length > 0) sendButtons[0].click();
+          }
         }
         setTimeout(() => { programmaticSendInProgress = false; }, 1000);
       }

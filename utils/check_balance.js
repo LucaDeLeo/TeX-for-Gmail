@@ -1,5 +1,5 @@
 const fs = require('fs');
-const content = fs.readFileSync('content.js', 'utf8');
+const content = fs.readFileSync('src/content.js', 'utf8');
 const lines = content.split('\n');
 
 let braceCount = 0;

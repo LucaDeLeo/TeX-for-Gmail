@@ -1,6 +1,6 @@
 # TeX for Gmail - Project Status
 
-**Version:** 1.1.0  
+**Version:** 1.2.0  
 **Status:** Production Ready  
 **Last Updated:** 2025-08-29
 

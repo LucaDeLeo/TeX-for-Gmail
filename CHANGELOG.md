@@ -16,6 +16,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.0] - 2025-09-13
+
+### Fixed
+- Simple Math crash due to undefined `opts` in content script.
+- Options page CSP to allow WordPress previews from `s0.wp.com`.
+- Utility script path to `src/content.js`.
+- Server-health reset logic based on last failure, not last check.
+- Read overlay now restores original container positioning.
+- Locale-agnostic send detection prefers `.aoO` button class and keyboard path.
+- Trimmed long LaTeX in `alt`/`title` to prevent oversized tooltips.
+
+### Changed
+- Removed unused `activeTab` permission from manifest.
+- Declared 16/32/48/128 icons in manifest (currently mapped to 128px asset).
+- Added “Auto-render on compose” setting to Options UI and defaults.
+- Reduced toast spam with basic category coalescing.
+
+### Docs
+- Updated project status to 1.2.0.
+- Adjusted README license section to reflect pending license file.
+
 ## [1.0.0-beta] - 2025-08-13
 
 ### 🎉 Initial Beta Release

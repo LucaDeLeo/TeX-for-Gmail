@@ -4,7 +4,6 @@
 
 [![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-green)](https://chrome.google.com)
 [![Manifest Version](https://img.shields.io/badge/Manifest-V3-blue)](https://developer.chrome.com/docs/extensions/mv3/)
-[![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 [![Version](https://img.shields.io/badge/Version-1.2--beta-orange)](manifest.json)
 
 > Contributor? See the concise contributor guide: [AGENTS.md](./AGENTS.md)
@@ -260,7 +259,7 @@ TeX-for-Gmail/
 
 ## 📄 License
 
-MIT License - see [LICENSE](LICENSE) file for details.
+License: MIT (license file to be added).
 
 ### Frequently Asked Questions
 
